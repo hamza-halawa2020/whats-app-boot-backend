@@ -1,6 +1,7 @@
 const { Client } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const WhatsAppSession = require("../models/WhatsAppSession");
+const puppeteer = require("puppeteer"); 
 
 const clients = new Map();
 
