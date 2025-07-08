@@ -58,7 +58,12 @@ const initializeWhatsApp = async (userId, phone) => {
     whatsapp.destroy();
   });
 
-  await whatsapp.initialize();
+  try {
+    await whatsapp.initialize();
+  } catch (err) {
+    console.error("WhatsApp initialization error:", err);
+  }
+
   clients.set(sessionId, whatsapp);
 
   return whatsapp;
