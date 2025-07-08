@@ -18,10 +18,8 @@ const initializeWhatsApp = async (userId, phone) => {
 
   const whatsapp = new Client({
     puppeteer: {
-      puppeteer: {
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      },
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     },
     session: savedSession ? savedSession.sessionData : undefined,
   });
