@@ -122,39 +122,29 @@ exports.sendMessageWithApiToken = async (req, res) => {
   try {
     phone = phone.trim().replace(/[^0-9]/g, "");
 
-    // Ensure client exists in DB
     let client = await Client.findOne({ phone, addedBy: req.user._id });
     if (!client) {
       client = new Client({ phone, addedBy: req.user._id });
       await client.save();
     }
 
-    // Initialize or get WhatsApp client
     let whatsapp = getWhatsAppClient(req.user._id, req.user.phone);
     if (!whatsapp) {
       whatsapp = await initializeWhatsApp(req.user._id, req.user.phone);
     }
 
-    // Wait for client to be ready
-    if (!whatsapp || !whatsapp.info || !whatsapp.info.wid) {
-      await new Promise((resolve) => whatsapp.once("ready", resolve));
-    }
-
-    const chatId = phone.endsWith("@c.us") ? phone : `${phone}@c.us`;
-
-    // Check if number is registered on WhatsApp
-    const isRegistered = await whatsapp.isRegisteredUser(chatId);
-    if (!isRegistered) {
+    if (!whatsapp || !whatsapp.info) {
       return res.status(400).json({
         success: false,
-        error: "This number is not registered on WhatsApp",
+        error: "WhatsApp client is not ready",
       });
     }
 
-    // Send message
+    const chatId = client.phone.endsWith("@c.us")
+      ? client.phone
+      : `${client.phone}@c.us`;
     await whatsapp.sendMessage(chatId, message);
 
-    // Save message to DB
     const savedMessage = new WhatsAppMessage({
       user: req.user._id,
       client: client._id,
