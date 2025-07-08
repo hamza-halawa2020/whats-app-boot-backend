@@ -16,58 +16,63 @@ const initializeWhatsApp = async (userId, phone) => {
     sessionId,
   });
 
-  const whatsapp = new Client({
-    puppeteer: {
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    },
-    session: savedSession ? savedSession.sessionData : undefined,
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
-  whatsapp.on("qr", async (qr) => {
+  const whatsapp = new Client({
+    session: savedSession ? savedSession.sessionData : undefined,
+    puppeteer: {
+      browser,
+    },
+  });
+
+  whatsapp.on('qr', async (qr) => {
     qrcode.generate(qr, { small: true });
     await WhatsAppSession.updateOne(
       { user: userId, sessionId },
-      { qrCode: qr, status: "pending" },
+      { qrCode: qr, status: 'pending' },
       { upsert: true }
     );
   });
 
-  whatsapp.on("authenticated", async (session) => {
+  whatsapp.on('authenticated', async (session) => {
     await WhatsAppSession.updateOne(
       { user: userId, sessionId },
-      { sessionData: session, status: "authenticated" },
+      { sessionData: session, status: 'authenticated' },
       { upsert: true }
     );
   });
 
-  whatsapp.on("ready", async () => {
+  whatsapp.on('ready', async () => {
     await WhatsAppSession.updateOne(
       { user: userId, sessionId },
-      { status: "ready", lastActive: new Date() }
+      { status: 'ready', lastActive: new Date() }
     );
     console.log(`WhatsApp client ready for user ${userId}`);
   });
 
-  whatsapp.on("disconnected", async () => {
+  whatsapp.on('disconnected', async () => {
     await WhatsAppSession.updateOne(
       { user: userId, sessionId },
-      { status: "disconnected", lastActive: new Date() }
+      { status: 'disconnected', lastActive: new Date() }
     );
     clients.delete(sessionId);
-    whatsapp.destroy();
+    await browser.close();
   });
 
   try {
     await whatsapp.initialize();
+    clients.set(sessionId, whatsapp);
+    return whatsapp;
   } catch (err) {
-    console.error("WhatsApp initialization error:", err);
+    console.error('WhatsApp initialization error:', err);
+    await browser.close();
+    throw err;
   }
-
-  clients.set(sessionId, whatsapp);
-
-  return whatsapp;
 };
+
 
 const getWhatsAppClient = (userId, phone) => {
   const sessionId = `${userId}_${phone}`;
