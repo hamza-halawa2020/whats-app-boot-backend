@@ -1,7 +1,6 @@
 const { Client } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const WhatsAppSession = require("../models/WhatsAppSession");
-const puppeteer = require("puppeteer"); 
 
 const clients = new Map();
 
@@ -17,15 +16,11 @@ const initializeWhatsApp = async (userId, phone) => {
     sessionId,
   });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-
   const whatsapp = new Client({
     session: savedSession ? savedSession.sessionData : undefined,
     puppeteer: {
-      browser,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'], 
     },
   });
 
@@ -60,7 +55,7 @@ const initializeWhatsApp = async (userId, phone) => {
       { status: 'disconnected', lastActive: new Date() }
     );
     clients.delete(sessionId);
-    await browser.close();
+    await whatsapp.destroy(); // ✅ استخدم destroy هنا
   });
 
   try {
@@ -69,11 +64,9 @@ const initializeWhatsApp = async (userId, phone) => {
     return whatsapp;
   } catch (err) {
     console.error('WhatsApp initialization error:', err);
-    await browser.close();
     throw err;
   }
 };
-
 
 const getWhatsAppClient = (userId, phone) => {
   const sessionId = `${userId}_${phone}`;
@@ -87,6 +80,7 @@ const deleteWhatsAppClient = async (sessionId) => {
     clients.delete(sessionId);
   }
 };
+
 module.exports = {
   initializeWhatsApp,
   getWhatsAppClient,
