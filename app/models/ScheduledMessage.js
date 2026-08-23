@@ -1,20 +1,65 @@
-// models/ScheduledMessage.js
-const mongoose = require("mongoose");
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/database");
+const User = require("./User");
 
-const scheduledMessageSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  phoneNumbers: [{ type: String, required: true }], // Array of target phone numbers
-  messagePool: [{ type: String, required: true }], // Pool of messages to choose from
-  intervalMs: { type: Number, required: true }, // Interval in milliseconds (e.g., 1 hour = 3600000)
-  repeatCount: { type: Number, default: 0 }, // 0 means repeat indefinitely
-  sentCount: { type: Number, default: 0 }, // Track how many times sent
-  status: {
-    type: String,
-    enum: ["active", "paused", "completed"],
-    default: "active",
+const ScheduledMessage = sequelize.define(
+  "ScheduledMessage",
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    _id: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.getDataValue("id");
+      },
+    },
+    userId: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+    },
+    phoneNumbers: {
+      type: DataTypes.JSON,
+      allowNull: false,
+    },
+    messagePool: {
+      type: DataTypes.JSON,
+      allowNull: false,
+    },
+    intervalMs: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+    },
+    repeatCount: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
+    },
+    sentCount: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
+    },
+    status: {
+      type: DataTypes.ENUM("active", "paused", "completed"),
+      defaultValue: "active",
+    },
+    lastSent: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  lastSent: { type: Date },
-  createdAt: { type: Date, default: Date.now },
-});
+  {
+    tableName: "scheduled_messages",
+    timestamps: false,
+  }
+);
 
-module.exports = mongoose.model("ScheduledMessage", scheduledMessageSchema);
+ScheduledMessage.belongsTo(User, { as: "user", foreignKey: "userId" });
+User.hasMany(ScheduledMessage, { as: "scheduledMessages", foreignKey: "userId" });
+
+module.exports = ScheduledMessage;

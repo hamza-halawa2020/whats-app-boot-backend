@@ -7,6 +7,8 @@ router.use(auth);
 
 router.post('/generate', messageController.generateApiToken);
 router.get('/', messageController.getApiTokens);
+router.put('/:tokenId', messageController.updateApiToken);
+router.post('/:tokenId/rotate', messageController.rotateApiToken);
 router.post('/revoke', messageController.revokeApiToken);
 
 module.exports = router;

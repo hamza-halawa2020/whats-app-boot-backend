@@ -1,13 +1,32 @@
-const {
-  initializeWhatsApp,
-  getWhatsAppClient,
-} = require("../services/whatsappService");
+const { waitForWhatsAppReady } = require("../services/whatsappService");
 const logger = require("../utils/logger");
 const WhatsAppMessage = require("../models/WhatsAppMessage");
 const Client = require("../models/Client");
 const ApiToken = require("../models/ApiToken");
+const MessageTemplate = require("../models/MessageTemplate");
+const { sendWhatsAppMessage } = require("../services/messageService");
+const { Op } = require("sequelize");
+const { normalizePhoneNumber } = require("../utils/phone");
+const { sendError } = require("../utils/responses");
+const { startSchedule, pauseSchedule } = require("../services/scheduleService");
 
 const ScheduledMessage = require("../models/ScheduledMessage");
+
+const notifyWebhook = async (apiToken, payload) => {
+  if (!apiToken?.webhookUrl) {
+    return;
+  }
+
+  try {
+    await fetch(apiToken.webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    logger.error(`Webhook callback failed: ${error}`);
+  }
+};
 
 exports.sendMessage = async (req, res) => {
   let { phone, message } = req.body; 
@@ -20,92 +39,57 @@ exports.sendMessage = async (req, res) => {
   }
 
   try {
-    phone = phone.trim().replace(/[^0-9]/g, "");
-
-    let client = await Client.findOne({ phone, addedBy: req.user._id });
-    if (!client) {
-      client = new Client({ phone, addedBy: req.user._id });
-      await client.save();
-    }
-
-    let whatsapp = getWhatsAppClient(req.user._id, req.user.phone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(req.user._id, req.user.phone);
-    }
-
-    if (!whatsapp || !whatsapp.info) {
-      return res.status(400).json({
-        success: false,
-        error: "WhatsApp client is not ready",
-      });
-    }
-
-    const chatId = client.phone.endsWith("@c.us")
-      ? client.phone
-      : `${client.phone}@c.us`;
-    await whatsapp.sendMessage(chatId, message);
-
-    const savedMessage = new WhatsAppMessage({
-      user: req.user._id,
-      client: client._id,
-      phone: phone,
-      message: message,
+    const result = await sendWhatsAppMessage({
+      user: req.user,
+      phone,
+      message,
     });
-    await savedMessage.save();
 
     return res.status(200).json({
       success: true,
       message: "Message sent successfully",
-      phone: phone,
+      phone: result.phone,
     });
   } catch (error) {
     logger.error(`Error sending message: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      fullError: error.toString(),
-    });
+    return sendError(res, error);
   }
 };
 
 exports.generateApiToken = async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user.id;
   const userPhone = req.user.phone;
+  const {
+    name = null,
+    scopes = ["messages:send"],
+    webhookUrl = null,
+    expiresAt = null,
+  } = req.body;
 
   try {
     // Check if user has a WhatsApp client ready
-    let whatsapp = getWhatsAppClient(userId, userPhone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(userId, userPhone);
-    }
+    await waitForWhatsAppReady(userId, userPhone);
 
-    if (!whatsapp || !whatsapp.info) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "WhatsApp client is not ready. Please connect your WhatsApp account.",
-      });
-    }
-
-    // Create new API token
-    const apiToken = new ApiToken({
-      user: userId,
+    const rawToken = ApiToken.generateRawToken();
+    const apiToken = ApiToken.build({
+      userId,
       phone: userPhone,
+      token: ApiToken.hashToken(rawToken),
+      name,
+      scopes,
+      webhookUrl,
+      expiresAt,
     });
     await apiToken.save();
 
     return res.status(200).json({
       success: true,
       message: "API token generated successfully",
-      token: apiToken.token,
+      token: rawToken,
     });
   } catch (error) {
     logger.error(`Error generating API token: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      fullError: error.toString(),
-    });
+    return sendError(res, error);
   }
 };
 
@@ -120,61 +104,55 @@ exports.sendMessageWithApiToken = async (req, res) => {
   }
 
   try {
-    phone = phone.trim().replace(/[^0-9]/g, "");
-
-    let client = await Client.findOne({ phone, addedBy: req.user._id });
-    if (!client) {
-      client = new Client({ phone, addedBy: req.user._id });
-      await client.save();
-    }
-
-    let whatsapp = getWhatsAppClient(req.user._id, req.user.phone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(req.user._id, req.user.phone);
-    }
-
-    if (!whatsapp || !whatsapp.info) {
-      return res.status(400).json({
-        success: false,
-        error: "WhatsApp client is not ready",
-      });
-    }
-
-    const chatId = client.phone.endsWith("@c.us")
-      ? client.phone
-      : `${client.phone}@c.us`;
-    await whatsapp.sendMessage(chatId, message);
-
-    const savedMessage = new WhatsAppMessage({
-      user: req.user._id,
-      client: client._id,
-      phone: phone,
-      message: message,
+    const result = await sendWhatsAppMessage({
+      user: req.user,
+      phone,
+      message,
     });
-    await savedMessage.save();
+
+    await notifyWebhook(req.apiToken, {
+      event: "message.sent",
+      phone: result.phone,
+      messageId: result.messageId,
+      providerMessageId: result.providerMessageId,
+      status: result.status,
+    });
 
     return res.status(200).json({
       success: true,
       message: "Message sent successfully",
-      phone: phone,
+      phone: result.phone,
+      messageId: result.messageId,
+      status: result.status,
     });
   } catch (error) {
-    logger.error(`Error sending message with API token: ${error}`);
-    return res.status(500).json({
-      success: false,
+    await notifyWebhook(req.apiToken, {
+      event: "message.failed",
+      phone,
       error: error.message,
-      fullError: error.toString(),
     });
+    logger.error(`Error sending message with API token: ${error}`);
+    return sendError(res, error);
   }
 };
 
 exports.getApiTokens = async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user.id;
 
   try {
-    const tokens = await ApiToken.find({ user: userId }).select(
-      "token phone createdAt"
-    );
+    const tokens = await ApiToken.findAll({
+      where: { userId },
+      attributes: [
+        "id",
+        "name",
+        "phone",
+        "scopes",
+        "webhookUrl",
+        "expiresAt",
+        "lastUsedAt",
+        "createdAt",
+      ],
+    });
     return res.status(200).json({
       success: true,
       message: "API tokens fetched successfully",
@@ -182,16 +160,82 @@ exports.getApiTokens = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error fetching API tokens: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      fullError: error.toString(),
+    return sendError(res, error);
+  }
+};
+
+exports.updateApiToken = async (req, res) => {
+  const userId = req.user.id;
+  const { tokenId } = req.params;
+  const { name, scopes, webhookUrl, expiresAt } = req.body;
+
+  try {
+    const apiToken = await ApiToken.findOne({ where: { id: tokenId, userId } });
+    if (!apiToken) {
+      return res.status(404).json({
+        success: false,
+        error: "Token not found or not authorized",
+      });
+    }
+
+    if (name !== undefined) apiToken.name = name;
+    if (scopes !== undefined) apiToken.scopes = scopes;
+    if (webhookUrl !== undefined) apiToken.webhookUrl = webhookUrl;
+    if (expiresAt !== undefined) apiToken.expiresAt = expiresAt || null;
+
+    await apiToken.save();
+
+    return res.json({
+      success: true,
+      message: "API token updated successfully",
+      token: {
+        id: apiToken.id,
+        name: apiToken.name,
+        phone: apiToken.phone,
+        scopes: apiToken.scopes,
+        webhookUrl: apiToken.webhookUrl,
+        expiresAt: apiToken.expiresAt,
+        lastUsedAt: apiToken.lastUsedAt,
+        createdAt: apiToken.createdAt,
+      },
     });
+  } catch (error) {
+    logger.error(`Error updating API token: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.rotateApiToken = async (req, res) => {
+  const userId = req.user.id;
+  const { tokenId } = req.params;
+
+  try {
+    const apiToken = await ApiToken.findOne({ where: { id: tokenId, userId } });
+    if (!apiToken) {
+      return res.status(404).json({
+        success: false,
+        error: "Token not found or not authorized",
+      });
+    }
+
+    const rawToken = ApiToken.generateRawToken();
+    apiToken.token = ApiToken.hashToken(rawToken);
+    apiToken.lastUsedAt = null;
+    await apiToken.save();
+
+    return res.json({
+      success: true,
+      message: "API token rotated successfully",
+      token: rawToken,
+    });
+  } catch (error) {
+    logger.error(`Error rotating API token: ${error}`);
+    return sendError(res, error);
   }
 };
 
 exports.revokeApiToken = async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user.id;
   const { tokenId } = req.body;
 
   if (!tokenId) {
@@ -202,10 +246,13 @@ exports.revokeApiToken = async (req, res) => {
   }
 
   try {
-    const token = await ApiToken.findOneAndDelete({
-      _id: tokenId,
-      user: userId,
+    const token = await ApiToken.findOne({
+      where: {
+        id: tokenId,
+        userId,
+      },
     });
+
     if (!token) {
       return res.status(404).json({
         success: false,
@@ -213,17 +260,15 @@ exports.revokeApiToken = async (req, res) => {
       });
     }
 
+    await token.destroy();
+
     return res.status(200).json({
       success: true,
       message: "API token revoked successfully",
     });
   } catch (error) {
     logger.error(`Error revoking API token: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      fullError: error.toString(),
-    });
+    return sendError(res, error);
   }
 };
 
@@ -236,7 +281,7 @@ exports.sendRandomMessages = async (req, res) => {
     repeatIntervalMs, // Interval for repeating messages (e.g., every 1 hour)
     repeatCount = 0, // Number of times to repeat (0 for indefinite)
   } = req.body;
-  const userId = req.user._id;
+  const userId = req.user.id;
   const userPhone = req.user.phone;
 
   const defaultMessages = [
@@ -262,54 +307,40 @@ exports.sendRandomMessages = async (req, res) => {
     }
 
     // Validate and clean phone numbers
-    const cleanedPhoneNumbers = phoneNumbers.map((phone) =>
-      phone.trim().replace(/[^0-9]/g, "")
-    );
-    if (cleanedPhoneNumbers.some((phone) => !phone)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid phone number format" });
-    }
+    const cleanedPhoneNumbers = phoneNumbers.map(normalizePhoneNumber);
 
     // Save or update clients
     const clients = [];
     for (const phone of cleanedPhoneNumbers) {
-      let client = await Client.findOne({ phone, addedBy: userId });
+      let client = await Client.findOne({
+        where: { phone, addedBy: userId },
+      });
       if (!client) {
-        client = new Client({ phone, addedBy: userId });
+        client = Client.build({ phone, addedBy: userId });
         await client.save();
       }
       clients.push(client);
     }
 
     // Initialize WhatsApp client
-    let whatsapp = getWhatsAppClient(userId, userPhone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(userId, userPhone);
-    }
-
-    if (!whatsapp || !whatsapp.info) {
-      return res
-        .status(400)
-        .json({ success: false, error: "WhatsApp client is not ready" });
-    }
+    const whatsapp = await waitForWhatsAppReady(userId, userPhone);
 
     // Save scheduling details if repeatIntervalMs is provided
     let scheduleId;
     if (repeatIntervalMs && repeatIntervalMs > 0) {
-      const scheduledMessage = new ScheduledMessage({
-        user: userId,
+      const scheduledMessage = ScheduledMessage.build({
+        userId,
         phoneNumbers: cleanedPhoneNumbers,
         messagePool: messages,
         intervalMs: repeatIntervalMs,
         repeatCount,
       });
       await scheduledMessage.save();
-      scheduleId = scheduledMessage._id;
+      scheduleId = scheduledMessage.id;
     }
 
     // Function to send a batch of messages
-    const sendBatch = async (clientsToSend, isScheduled = false) => {
+    const sendBatch = async (clientsToSend) => {
       let sentCount = 0;
       let failedCount = 0;
       const errors = [];
@@ -322,18 +353,46 @@ exports.sendRandomMessages = async (req, res) => {
           : `${client.phone}@c.us`;
 
         try {
-          await whatsapp.sendMessage(chatId, randomMessage);
-          await new WhatsAppMessage({
-            user: userId,
-            client: client._id,
+          let sentMessage;
+          let lastError;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              sentMessage = await whatsapp.sendMessage(chatId, randomMessage, {
+                sendSeen: false,
+              });
+              lastError = null;
+              break;
+            } catch (error) {
+              lastError = error;
+              await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+            }
+          }
+
+          if (lastError) {
+            throw lastError;
+          }
+
+          await WhatsAppMessage.build({
+            userId,
+            clientId: client.id,
             phone: client.phone,
             message: randomMessage,
+            providerMessageId: sentMessage?.id?._serialized || null,
+            status: "sent",
           }).save();
           sentCount++;
         } catch (err) {
           failedCount++;
           errors.push({ phone: client.phone, error: err.message });
           logger.error(`Error sending to ${client.phone}: ${err}`);
+          await WhatsAppMessage.build({
+            userId,
+            clientId: client.id,
+            phone: client.phone,
+            message: randomMessage,
+            status: "failed",
+            error: err.message,
+          }).save();
         }
       }
 
@@ -341,47 +400,26 @@ exports.sendRandomMessages = async (req, res) => {
     };
 
     // Send initial batch
-    const { sentCount, failedCount, errors } = await sendBatch(clients);
+    const batches = [];
+    for (let index = 0; index < clients.length; index += batchSize) {
+      batches.push(clients.slice(index, index + batchSize));
+    }
 
-    // Schedule repeated messages if repeatIntervalMs is provided
+    let sentCount = 0;
+    let failedCount = 0;
+    const errors = [];
+    for (const [index, batch] of batches.entries()) {
+      const result = await sendBatch(batch);
+      sentCount += result.sentCount;
+      failedCount += result.failedCount;
+      errors.push(...result.errors);
+      if (index < batches.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+
     if (repeatIntervalMs && repeatIntervalMs > 0) {
-      const scheduleMessages = async () => {
-        const schedule = await ScheduledMessage.findById(scheduleId);
-        if (!schedule || schedule.status !== "active") return;
-
-        // Check repeat count
-        if (
-          schedule.repeatCount > 0 &&
-          schedule.sentCount >= schedule.repeatCount
-        ) {
-          schedule.status = "completed";
-          await schedule.save();
-          return;
-        }
-
-        const {
-          sentCount: batchSent,
-          failedCount: batchFailed,
-          errors: batchErrors,
-        } = await sendBatch(clients, true);
-        schedule.sentCount += batchSent;
-        schedule.lastSent = new Date();
-        await schedule.save();
-
-        if (batchErrors.length) {
-          logger.error(
-            `Scheduled batch errors: ${JSON.stringify(batchErrors)}`
-          );
-        }
-
-        // Schedule next batch
-        if (schedule.status === "active") {
-          setTimeout(scheduleMessages, repeatIntervalMs);
-        }
-      };
-
-      // Start scheduling
-      setTimeout(scheduleMessages, repeatIntervalMs);
+      await startSchedule(scheduleId, userPhone, repeatIntervalMs);
     }
 
     return res.status(200).json({
@@ -397,14 +435,139 @@ exports.sendRandomMessages = async (req, res) => {
     });
   } catch (error) {
     logger.error(`sendRandomMessages error: ${error}`);
-    return res.status(500).json({ success: false, error: error.message });
+    return sendError(res, error);
+  }
+};
+
+exports.getMessageHistory = async (req, res) => {
+  const userId = req.user.id;
+  const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
+  const where = { userId };
+
+  if (req.query.phone) {
+    where.phone = normalizePhoneNumber(req.query.phone);
+  }
+
+  if (req.query.status) {
+    where.status = req.query.status;
+  }
+
+  if (req.query.search) {
+    where.message = { [Op.like]: `%${req.query.search}%` };
+  }
+
+  try {
+    const { rows, count } = await WhatsAppMessage.findAndCountAll({
+      where,
+      order: [["createdAt", "DESC"]],
+      offset: (page - 1) * limit,
+      limit,
+    });
+
+    return res.json({
+      success: true,
+      messages: rows,
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+    });
+  } catch (error) {
+    logger.error(`Error fetching message history: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.createTemplate = async (req, res) => {
+  const { name, body, variables = [] } = req.body;
+
+  if (!name || !body) {
+    return res.status(400).json({
+      success: false,
+      error: "Template name and body are required",
+    });
+  }
+
+  try {
+    const template = await MessageTemplate.create({
+      userId: req.user.id,
+      name,
+      body,
+      variables,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Template created successfully",
+      template,
+    });
+  } catch (error) {
+    logger.error(`Error creating template: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.getTemplates = async (req, res) => {
+  try {
+    const templates = await MessageTemplate.findAll({
+      where: { userId: req.user.id },
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.json({
+      success: true,
+      templates,
+    });
+  } catch (error) {
+    logger.error(`Error fetching templates: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.updateTemplate = async (req, res) => {
+  try {
+    const template = await MessageTemplate.findOne({
+      where: { id: req.params.id, userId: req.user.id },
+    });
+
+    if (!template) {
+      return res.status(404).json({ success: false, error: "Template not found" });
+    }
+
+    ["name", "body", "variables"].forEach((field) => {
+      if (req.body[field] !== undefined) template[field] = req.body[field];
+    });
+    await template.save();
+
+    return res.json({ success: true, message: "Template updated", template });
+  } catch (error) {
+    logger.error(`Error updating template: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.deleteTemplate = async (req, res) => {
+  try {
+    const template = await MessageTemplate.findOne({
+      where: { id: req.params.id, userId: req.user.id },
+    });
+
+    if (!template) {
+      return res.status(404).json({ success: false, error: "Template not found" });
+    }
+
+    await template.destroy();
+    return res.json({ success: true, message: "Template deleted" });
+  } catch (error) {
+    logger.error(`Error deleting template: ${error}`);
+    return sendError(res, error);
   }
 };
 
 // New endpoint to pause/resume scheduled messages
 exports.toggleSchedule = async (req, res) => {
   const { scheduleId, action } = req.body; // action: 'pause' or 'resume'
-  const userId = req.user._id;
+  const userId = req.user.id;
 
   if (!scheduleId || !["pause", "resume"].includes(action)) {
     return res
@@ -417,8 +580,10 @@ exports.toggleSchedule = async (req, res) => {
 
   try {
     const schedule = await ScheduledMessage.findOne({
-      _id: scheduleId,
-      user: userId,
+      where: {
+        id: scheduleId,
+        userId,
+      },
     });
     if (!schedule) {
       return res
@@ -429,55 +594,10 @@ exports.toggleSchedule = async (req, res) => {
     schedule.status = action === "pause" ? "paused" : "active";
     await schedule.save();
 
-    // If resuming, restart the scheduling
-    if (action === "resume" && schedule.status === "active") {
-      const whatsapp = getWhatsAppClient(userId, req.user.phone);
-      if (!whatsapp || !whatsapp.info) {
-        return res
-          .status(400)
-          .json({ success: false, error: "WhatsApp client is not ready" });
-      }
-
-      const clients = await Client.find({
-        phone: { $in: schedule.phoneNumbers },
-        addedBy: userId,
-      });
-      const sendBatch = async () => {
-        const randomMessage =
-          schedule.messagePool[
-            Math.floor(Math.random() * schedule.messagePool.length)
-          ];
-        let sentCount = 0;
-        for (const client of clients) {
-          const chatId = client.phone.endsWith("@c.us")
-            ? client.phone
-            : `${client.phone}@c.us`;
-          try {
-            await whatsapp.sendMessage(chatId, randomMessage);
-            await new WhatsAppMessage({
-              user: userId,
-              client: client._id,
-              phone: client.phone,
-              message: randomMessage,
-            }).save();
-            sentCount++;
-          } catch (err) {
-            logger.error(`Error sending to ${client.phone}: ${err}`);
-          }
-        }
-        schedule.sentCount += sentCount;
-        schedule.lastSent = new Date();
-        await schedule.save();
-
-        if (
-          schedule.status === "active" &&
-          (schedule.repeatCount === 0 ||
-            schedule.sentCount < schedule.repeatCount)
-        ) {
-          setTimeout(sendBatch, schedule.intervalMs);
-        }
-      };
-      setTimeout(sendBatch, schedule.intervalMs);
+    if (action === "pause") {
+      pauseSchedule(schedule.id);
+    } else {
+      await startSchedule(schedule.id, req.user.phone);
     }
 
     return res.status(200).json({
@@ -486,18 +606,29 @@ exports.toggleSchedule = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error toggling schedule: ${error}`);
-    return res.status(500).json({ success: false, error: error.message });
+    return sendError(res, error);
   }
 };
 
 // New endpoint to get all schedules for a user
 exports.getSchedules = async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user.id;
 
   try {
-    const schedules = await ScheduledMessage.find({ user: userId }).select(
-      "phoneNumbers messagePool intervalMs repeatCount sentCount status lastSent createdAt"
-    );
+    const schedules = await ScheduledMessage.findAll({
+      where: { userId },
+      attributes: [
+        "id",
+        "phoneNumbers",
+        "messagePool",
+        "intervalMs",
+        "repeatCount",
+        "sentCount",
+        "status",
+        "lastSent",
+        "createdAt",
+      ],
+    });
     return res.status(200).json({
       success: true,
       message: "Schedules fetched successfully",
@@ -505,6 +636,6 @@ exports.getSchedules = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error fetching schedules: ${error}`);
-    return res.status(500).json({ success: false, error: error.message });
+    return sendError(res, error);
   }
 };

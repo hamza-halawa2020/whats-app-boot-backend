@@ -3,9 +3,8 @@ const router = express.Router();
 const clientController = require("../controllers/clientController");
 const auth = require("../middlewares/auth");
 
-
-
-
+router.post("/import/preview", auth, clientController.previewImport);
+router.post("/import", auth, clientController.importClients);
 router.post("/", auth, clientController.addClient);
 router.get("/", auth, clientController.getAllClients);
 router.put("/:id", auth, clientController.updateClient);

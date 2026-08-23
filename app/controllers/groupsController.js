@@ -1,27 +1,17 @@
 const {
-  initializeWhatsApp,
-  getWhatsAppClient,
+  waitForWhatsAppReady,
 } = require("../services/whatsappService");
 const logger = require("../utils/logger");
-const WhatsAppMessage = require("../models/WhatsAppMessage");
 const Client = require("../models/Client");
+const { normalizePhoneNumber } = require("../utils/phone");
+const { sendError } = require("../utils/responses");
 
 exports.getGroups = async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user.id;
   const userPhone = req.user.phone;
 
   try {
-    let whatsapp = getWhatsAppClient(userId, userPhone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(userId, userPhone);
-    }
-
-    if (!whatsapp || !whatsapp.info) {
-      return res.status(400).json({
-        success: false,
-        error: "WhatsApp client is not ready",
-      });
-    }
+    const whatsapp = await waitForWhatsAppReady(userId, userPhone);
 
     const chats = await whatsapp.getChats();
     const groups = chats
@@ -39,16 +29,12 @@ exports.getGroups = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error fetching groups: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      fullError: error.toString(),
-    });
+    return sendError(res, error);
   }
 };
 
 exports.getGroupParticipants = async (req, res) => {
-  const userId = req.user._id;
+  const userId = req.user.id;
   const userPhone = req.user.phone;
   let { groupId } = req.params;
 
@@ -74,17 +60,7 @@ exports.getGroupParticipants = async (req, res) => {
   }
 
   try {
-    let whatsapp = getWhatsAppClient(userId, userPhone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(userId, userPhone);
-    }
-
-    if (!whatsapp || !whatsapp.info) {
-      return res.status(400).json({
-        success: false,
-        error: "WhatsApp client is not ready",
-      });
-    }
+    const whatsapp = await waitForWhatsAppReady(userId, userPhone);
 
     const chat = await whatsapp.getChatById(groupId);
     if (!chat || !chat.isGroup) {
@@ -131,28 +107,25 @@ exports.getGroupParticipants = async (req, res) => {
         continue;
       }
 
-      // Format phone number with country code
-      let formattedPhone = participant.phone;
-      if (!formattedPhone.startsWith('+')) {
-        formattedPhone = `+${formattedPhone}`;
-      }
-
-      // Validate phone number format
-      const phoneRegex = /^\+\d{10,15}$/;
-      if (!phoneRegex.test(formattedPhone)) {
+      let formattedPhone;
+      try {
+        formattedPhone = normalizePhoneNumber(participant.phone);
+      } catch (error) {
         invalidCount++;
         continue;
       }
 
       // Check if client already exists
       const existingClient = await Client.findOne({
-        phone: formattedPhone,
-        addedBy: userId,
+        where: {
+          phone: formattedPhone,
+          addedBy: userId,
+        },
       });
 
       if (!existingClient) {
         // Create new client
-        const newClient = new Client({
+        const newClient = Client.build({
           phone: formattedPhone,
           addedBy: userId,
         });
@@ -175,10 +148,6 @@ exports.getGroupParticipants = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error fetching group participants for group ${groupId}: ${error}`);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      fullError: error.toString(),
-    });
+    return sendError(res, error);
   }
 };

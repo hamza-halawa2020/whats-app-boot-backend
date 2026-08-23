@@ -1,5 +1,34 @@
 "# whats-app-boot-backend" 
 
+## Local Setup
+
+This backend uses MySQL through Sequelize.
+
+1. Create a MySQL database:
+
+```sql
+CREATE DATABASE whatsapp_boot_backend CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+2. Copy `.env.example` to `.env` and update the database credentials:
+
+```env
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=whatsapp_boot_backend
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+```
+
+3. Install dependencies and start the app:
+
+```bash
+npm install
+npm start
+```
+
+The app will create or sync the required MySQL tables on startup.
+
 WhatsApp Messaging API (External)
 Overview
 This API allows you to send WhatsApp messages and manage API tokens for your connected WhatsApp account.

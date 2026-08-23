@@ -1,28 +1,67 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/database");
+const User = require("./User");
+const Client = require("./Client");
 
-const whatsappMessageSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
+const WhatsAppMessage = sequelize.define(
+  "WhatsAppMessage",
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+    },
+    clientId: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+    },
+    message: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    providerMessageId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
+    status: {
+      type: DataTypes.ENUM("pending", "sent", "delivered", "read", "played", "failed", "unknown"),
+      defaultValue: "sent",
+    },
+    error: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    deliveredAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    readAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  client: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Client",
-    required: true,
-  },
-  message: {
-    type: String,
-    required: true,
-  },
-  phone: {
-    type: String,
-    required: true,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
+  {
+    tableName: "whatsapp_messages",
+    timestamps: false,
+  }
+);
 
-module.exports = mongoose.model("WhatsAppMessage", whatsappMessageSchema);
+WhatsAppMessage.belongsTo(User, { as: "user", foreignKey: "userId" });
+WhatsAppMessage.belongsTo(Client, { as: "client", foreignKey: "clientId" });
+User.hasMany(WhatsAppMessage, { as: "messages", foreignKey: "userId" });
+Client.hasMany(WhatsAppMessage, { as: "messages", foreignKey: "clientId" });
+
+module.exports = WhatsAppMessage;

@@ -1,60 +1,103 @@
-const mongoose = require("mongoose");
+const { DataTypes } = require("sequelize");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { sequelize } = require("../config/database");
 
-const userSchema = new mongoose.Schema({
-  username: {
-    type: String, 
-    required: true,
-    unique: true,
-    trim: true,
-    minlength: 3,
-    maxlength: 30,
+const User = sequelize.define(
+  "User",
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    _id: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.getDataValue("id");
+      },
+    },
+    username: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      unique: true,
+      validate: {
+        len: [3, 30],
+      },
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+      validate: {
+        isEmail: true,
+      },
+      set(value) {
+        this.setDataValue("email", value.trim().toLowerCase());
+      },
+    },
+    password: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      validate: {
+        len: [6, 255],
+      },
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+    isVerified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    role: {
+      type: DataTypes.ENUM("user", "admin"),
+      defaultValue: "user",
+    },
+    tokens: {
+      type: DataTypes.JSON,
+      defaultValue: [],
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true,
-  },
-  password: { type: String, required: true, minlength: 6 },
-  phone: { type: String, required: true, unique: true },
-  isVerified: { type: Boolean, default: false },
-  role: { type: String, enum: ["user", "admin"], default: "user" },
-  tokens: [{ token: { type: String, required: true } }],
-  createdAt: { type: Date, default: Date.now },
-});
-
-userSchema.pre("save", async function (next) {
-  const user = this;
-  if (user.isModified("password")) {
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(user.password, salt);
+  {
+    tableName: "users",
+    timestamps: false,
+    hooks: {
+      beforeSave: async (user) => {
+        if (user.changed("password")) {
+          const salt = await bcrypt.genSalt(10);
+          user.password = await bcrypt.hash(user.password, salt);
+        }
+      },
+    },
   }
-  next();
-});
+);
 
-userSchema.methods.generateAuthToken = async function () {
-  const user = this;
-  const token = jwt.sign({ _id: user._id.toString() }, process.env.JWT_SECRET, {
+User.prototype.generateAuthToken = async function () {
+  const token = jwt.sign({ _id: String(this.id) }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
   });
 
-  user.tokens = user.tokens.concat({ token });
-  await user.save();
+  this.tokens = [...(this.tokens || []), { token }];
+  await this.save();
 
   return token;
 };
 
-userSchema.methods.toJSON = function () {
-  const user = this.toObject();
+User.prototype.toJSON = function () {
+  const user = { ...this.get({ plain: true }), _id: this.id };
 
   delete user.password;
   delete user.role;
   delete user.tokens;
-  delete user.__v;
 
   return user;
 };
-module.exports = mongoose.model("User", userSchema);
+
+module.exports = User;

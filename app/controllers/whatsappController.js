@@ -1,16 +1,43 @@
 const {
   initializeWhatsApp,
   getWhatsAppClient,
+  getWhatsAppRuntimeStatus,
   deleteWhatsAppClient,
+  deleteLocalAuthSession,
 } = require("../services/whatsappService");
 const WhatsAppSession = require("../models/WhatsAppSession");
-const WhatsAppMessage = require("../models/WhatsAppMessage");
-const ClientModel = require("../models/Client");
+const { sendWhatsAppMessage } = require("../services/messageService");
+const logger = require("../utils/logger");
+const { sendError } = require("../utils/responses");
+const { normalizePhoneNumber } = require("../utils/phone");
+
+const getRequestedPhone = (req) =>
+  req.body?.phone || req.query?.phone
+    ? normalizePhoneNumber(req.body?.phone || req.query?.phone)
+    : req.user.phone;
+
+const waitForSessionUpdate = async (userId, sessionId, attempts = 10) => {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const session = await WhatsAppSession.findOne({
+      where: { userId, sessionId },
+    });
+
+    if (session?.qrCode || ["ready", "pending", "authenticated"].includes(session?.status)) {
+      return session;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  return WhatsAppSession.findOne({
+    where: { userId, sessionId },
+  });
+};
 
 exports.startWhatsApp = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const phone = req.user.phone;
+    const userId = req.user.id;
+    const phone = getRequestedPhone(req);
 
     if (!phone) {
       return res
@@ -18,12 +45,10 @@ exports.startWhatsApp = async (req, res) => {
         .json({ success: false, error: "User phone is required" });
     }
 
-    const client = await initializeWhatsApp(userId, phone);
+    await initializeWhatsApp(userId, phone);
 
-    const session = await WhatsAppSession.findOne({
-      user: userId,
-      sessionId: `${userId}_${phone}`,
-    });
+    const sessionId = `${userId}_${phone}`;
+    const session = await waitForSessionUpdate(userId, sessionId);
 
     return res.json({
       success: true,
@@ -32,7 +57,8 @@ exports.startWhatsApp = async (req, res) => {
       status: session?.status || "starting",
     });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    logger.error(`Error starting WhatsApp session: ${error}`);
+    return sendError(res, error);
   }
 };
 
@@ -46,52 +72,26 @@ exports.sendMessage = async (req, res) => {
   }
 
   try {
-    phone = phone.trim().replace(/[^0-9]/g, "");
-
-    let client = await ClientModel.findOne({ phone, addedBy: req.user._id });
-    if (!client) {
-      client = new ClientModel({ phone, addedBy: req.user._id });
-      await client.save();
-    }
-
-    let whatsapp = getWhatsAppClient(req.user._id, req.user.phone);
-    if (!whatsapp) {
-      whatsapp = await initializeWhatsApp(req.user._id, req.user.phone);
-    }
-
-    if (!whatsapp || !whatsapp.info) {
-      return res
-        .status(400)
-        .json({ success: false, error: "WhatsApp client is not ready" });
-    }
-
-    const chatId = client.phone.endsWith("@c.us")
-      ? client.phone
-      : `${client.phone}@c.us`;
-    await whatsapp.sendMessage(chatId, message);
-
-    const savedMessage = new WhatsAppMessage({
-      user: req.user._id,
-      client: client._id,
-      phone: phone,
-      message: message,
+    const result = await sendWhatsAppMessage({
+      user: req.user,
+      phone,
+      message,
     });
-    await savedMessage.save();
 
     return res.status(200).json({
       success: true,
       message: "Message sent successfully",
-      phone: phone,
+      phone: result.phone,
     });
   } catch (error) {
-    console.error(`Error sending message: ${error}`);
-    return res.status(500).json({ success: false, error: error.message });
+    logger.error(`Error sending message: ${error}`);
+    return sendError(res, error);
   }
 };
 
 exports.restartWhatsAppSession = async (req, res) => {
-  const userId = req.user._id;
-  const phone = req.user.phone;
+  const userId = req.user.id;
+  const phone = getRequestedPhone(req);
 
   const sessionId = `${userId}_${phone}`;
 
@@ -101,10 +101,13 @@ exports.restartWhatsAppSession = async (req, res) => {
       await deleteWhatsAppClient(sessionId);
     }
 
-    await WhatsAppSession.deleteOne({ user: userId, sessionId });
+    await WhatsAppSession.destroy({ where: { userId, sessionId } });
+    await deleteLocalAuthSession(sessionId);
 
-    const newClient = await initializeWhatsApp(userId, phone);
-    const session = await WhatsAppSession.findOne({ user: userId, sessionId });
+    await initializeWhatsApp(userId, phone);
+    const session = await WhatsAppSession.findOne({
+      where: { userId, sessionId },
+    });
 
     return res.json({
       success: true,
@@ -113,13 +116,14 @@ exports.restartWhatsAppSession = async (req, res) => {
       status: session?.status || "starting",
     });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    logger.error(`Error restarting WhatsApp session: ${error}`);
+    return sendError(res, error);
   }
 };
 
 exports.deleteWhatsAppSession = async (req, res) => {
-  const userId = req.user._id;
-  const phone = req.user.phone;
+  const userId = req.user.id;
+  const phone = getRequestedPhone(req);
 
   const sessionId = `${userId}_${phone}`;
 
@@ -129,13 +133,60 @@ exports.deleteWhatsAppSession = async (req, res) => {
       await deleteWhatsAppClient(sessionId);
     }
 
-    await WhatsAppSession.deleteOne({ user: userId, sessionId });
+    await WhatsAppSession.destroy({ where: { userId, sessionId } });
+    await deleteLocalAuthSession(sessionId);
 
     return res.json({
       success: true,
       message: "WhatsApp session deleted successfully",
     });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    logger.error(`Error deleting WhatsApp session: ${error}`);
+    return sendError(res, error);
   }
+};
+
+exports.getSessions = async (req, res) => {
+  try {
+    const sessions = await WhatsAppSession.findAll({
+      where: { userId: req.user.id },
+      attributes: ["id", "sessionId", "phone", "status", "lastActive", "createdAt"],
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.json({
+      success: true,
+      sessions,
+    });
+  } catch (error) {
+    logger.error(`Error listing WhatsApp sessions: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.getSessionStatus = async (req, res) => {
+  try {
+    const phone = getRequestedPhone(req);
+    const sessionId = `${req.user.id}_${phone}`;
+    const session = await WhatsAppSession.findOne({
+      where: { userId: req.user.id, sessionId },
+      attributes: ["id", "sessionId", "phone", "status", "qrCode", "lastActive", "createdAt"],
+    });
+    const runtime = await getWhatsAppRuntimeStatus(req.user.id, phone);
+
+    return res.json({
+      success: true,
+      status: session?.status || "starting",
+      session: session || null,
+      runtime,
+    });
+  } catch (error) {
+    logger.error(`Error fetching WhatsApp session status: ${error}`);
+    return sendError(res, error);
+  }
+};
+
+exports.refreshQr = async (req, res) => {
+  req.body.phone = getRequestedPhone(req);
+  return exports.restartWhatsAppSession(req, res);
 };

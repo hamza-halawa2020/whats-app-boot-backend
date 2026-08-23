@@ -1,27 +1,59 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/database");
+const User = require("./User");
 
-const clientSchema = new mongoose.Schema({
-  phone: {
-    type: String,
-    required: true,
-    trim: true
+const Client = sequelize.define(
+  "Client",
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    _id: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.getDataValue("id");
+      },
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    tags: {
+      type: DataTypes.JSON,
+      defaultValue: [],
+    },
+    segment: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    addedBy: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  addedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+  {
+    tableName: "clients",
+    timestamps: false,
+    indexes: [
+      {
+        unique: true,
+        fields: ["phone", "addedBy"],
+      },
+    ],
   }
-});
+);
 
-clientSchema.methods.toJSON = function () {
-  const client = this.toObject();
-  delete client.__v;
+Client.belongsTo(User, { as: "owner", foreignKey: "addedBy" });
+User.hasMany(Client, { as: "clients", foreignKey: "addedBy" });
 
-  return client;
-};
-
-module.exports = mongoose.model('Client', clientSchema);
+module.exports = Client;

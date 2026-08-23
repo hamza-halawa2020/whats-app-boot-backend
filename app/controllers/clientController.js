@@ -1,18 +1,24 @@
 const Client = require("../models/Client");
 const logger = require("../utils/logger");
+const { Op } = require("sequelize");
+const { normalizePhoneNumber } = require("../utils/phone");
+const { sendError } = require("../utils/responses");
 
 // Add Client
 exports.addClient = async (req, res) => {
   try {
-    let { phone } = req.body;
+    let { phone, name = null, tags = [], segment = null } = req.body;
     if (!phone) {
       logger.error("Missing phone");
       return res.status(400).json({ error: "Phone is required" });
     }
+    phone = normalizePhoneNumber(phone);
 
     const existingClient = await Client.findOne({
-      phone,
-      addedBy: req.user._id,
+      where: {
+        phone,
+        addedBy: req.user.id,
+      },
     });
     if (existingClient) {
       return res
@@ -20,14 +26,14 @@ exports.addClient = async (req, res) => {
         .json({ error: "Client already exists with this phone number" });
     }
 
-    const client = new Client({ phone, addedBy: req.user._id });
+    const client = Client.build({ phone, name, tags, segment, addedBy: req.user.id });
     await client.save();
 
     logger.info(`Client added: ${phone}`);
     res.status(201).json({ message: "Client added successfully", client });
   } catch (error) {
     logger.error(`Error adding client: ${error.message}`);
-    res.status(500).json({ error: "Server error" });
+    sendError(res, error);
   }
 };
 
@@ -36,9 +42,14 @@ exports.getAllClients = async (req, res) => {
   try {
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
+    const where = { addedBy: req.user.id };
+
+    if (req.query.segment) {
+      where.segment = req.query.segment;
+    }
 
     if (!limit || limit === 0) {
-      const clients = await Client.find({ addedBy: req.user._id });
+      const clients = await Client.findAll({ where });
       return res.status(200).json({
         clients,
         total: clients.length,
@@ -50,8 +61,8 @@ exports.getAllClients = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const [clients, total] = await Promise.all([
-      Client.find({ addedBy: req.user._id }).skip(skip).limit(limit),
-      Client.countDocuments({ addedBy: req.user._id }),
+      Client.findAll({ where, offset: skip, limit }),
+      Client.count({ where }),
     ]);
 
     res.status(200).json({
@@ -62,7 +73,7 @@ exports.getAllClients = async (req, res) => {
     });
   } catch (error) {
     logger.error(`Error fetching clients: ${error.message}`);
-    res.status(500).json({ error: "Server error" });
+    sendError(res, error);
   }
 };
 
@@ -72,17 +83,20 @@ exports.getAllClients = async (req, res) => {
 exports.updateClient = async (req, res) => {
   try {
     const { id } = req.params;
-    const { phone } = req.body;
+    const { phone, name, tags, segment } = req.body;
 
     if (!phone) {
       return res.status(400).json({ error: "Phone is required" });
     }
+    const normalizedPhone = normalizePhoneNumber(phone);
 
     // Check if the phone already exists for this user (excluding current client)
     const duplicate = await Client.findOne({
-      phone,
-      addedBy: req.user._id,
-      _id: { $ne: id },
+      where: {
+        phone: normalizedPhone,
+        addedBy: req.user.id,
+        id: { [Op.ne]: id },
+      },
     });
     if (duplicate) {
       return res
@@ -90,20 +104,133 @@ exports.updateClient = async (req, res) => {
         .json({ error: "Another client already has this phone number" });
     }
 
-    const client = await Client.findOneAndUpdate(
-      { _id: id, addedBy: req.user._id },
-      { phone },
-      { new: true }
-    );
+    const client = await Client.findOne({
+      where: { id, addedBy: req.user.id },
+    });
 
     if (!client) {
       return res.status(404).json({ error: "Client not found" });
     }
 
+    client.phone = normalizedPhone;
+    if (name !== undefined) client.name = name;
+    if (tags !== undefined) client.tags = tags;
+    if (segment !== undefined) client.segment = segment;
+    await client.save();
+
     res.status(200).json({ message: "Client updated successfully", client });
   } catch (error) {
     logger.error(`Error updating client: ${error.message}`);
-    res.status(500).json({ error: "Server error" });
+    sendError(res, error);
+  }
+};
+
+const parseImportRows = (rows) => {
+  if (Array.isArray(rows)) {
+    return rows;
+  }
+
+  if (typeof rows !== "string") {
+    return [];
+  }
+
+  return rows
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [phone, name = "", tags = "", segment = ""] = line.split(",");
+      return {
+        phone,
+        name: name || null,
+        tags: tags ? tags.split("|").map((tag) => tag.trim()).filter(Boolean) : [],
+        segment: segment || null,
+      };
+    });
+};
+
+const previewClientRows = async (userId, rows) => {
+  const normalized = [];
+  const errors = [];
+  const seen = new Set();
+
+  for (const [index, row] of rows.entries()) {
+    try {
+      const phone = normalizePhoneNumber(row.phone);
+      const duplicateInFile = seen.has(phone);
+      seen.add(phone);
+      const duplicateInDatabase = Boolean(
+        await Client.findOne({ where: { phone, addedBy: userId } })
+      );
+
+      normalized.push({
+        index,
+        phone,
+        name: row.name || null,
+        tags: row.tags || [],
+        segment: row.segment || null,
+        duplicateInFile,
+        duplicateInDatabase,
+      });
+    } catch (error) {
+      errors.push({ index, phone: row.phone, error: error.message });
+    }
+  }
+
+  return {
+    rows: normalized,
+    errors,
+    validCount: normalized.length,
+    duplicateCount: normalized.filter(
+      (row) => row.duplicateInFile || row.duplicateInDatabase
+    ).length,
+  };
+};
+
+exports.previewImport = async (req, res) => {
+  try {
+    const rows = parseImportRows(req.body.rows || req.body.csv);
+    const preview = await previewClientRows(req.user.id, rows);
+    return res.json({ success: true, preview });
+  } catch (error) {
+    logger.error(`Error previewing clients import: ${error.message}`);
+    return sendError(res, error);
+  }
+};
+
+exports.importClients = async (req, res) => {
+  try {
+    const rows = parseImportRows(req.body.rows || req.body.csv);
+    const preview = await previewClientRows(req.user.id, rows);
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of preview.rows) {
+      if (row.duplicateInFile || row.duplicateInDatabase) {
+        skippedCount++;
+        continue;
+      }
+
+      await Client.create({
+        phone: row.phone,
+        name: row.name,
+        tags: row.tags,
+        segment: row.segment,
+        addedBy: req.user.id,
+      });
+      addedCount++;
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Clients imported successfully",
+      addedCount,
+      skippedCount,
+      errors: preview.errors,
+    });
+  } catch (error) {
+    logger.error(`Error importing clients: ${error.message}`);
+    return sendError(res, error);
   }
 };
 
@@ -112,18 +239,22 @@ exports.deleteClient = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const client = await Client.findOneAndDelete({
-      _id: id,
-      addedBy: req.user._id,
+    const client = await Client.findOne({
+      where: {
+        id,
+        addedBy: req.user.id,
+      },
     });
 
     if (!client) {
       return res.status(404).json({ error: "Client not found" });
     }
 
+    await client.destroy();
+
     res.status(200).json({ message: "Client deleted successfully" });
   } catch (error) {
     logger.error(`Error deleting client: ${error.message}`);
-    res.status(500).json({ error: "Server error" });
+    sendError(res, error);
   }
 };

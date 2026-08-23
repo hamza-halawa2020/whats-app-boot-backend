@@ -1,116 +1,116 @@
-WhatsApp Messaging API (External)
-Overview
-This API allows you to send WhatsApp messages and manage API tokens for your connected WhatsApp account.
-Authentication
+# API Docs
 
-JWT Authentication: Used for internal endpoints (/api/tokens/*). Requires Authorization: Bearer <your_jwt_token> (from POST /api/users/login).
-API Token Authentication: Used for external endpoint (/api/external/messages/send). Requires X-API-Token: <your_api_token>.
+Base URL: `http://localhost:3000`
 
-1. Generate API Token
-POST /api/tokens/generate
-Generate a permanent API token for sending messages.
-Authentication
+## Auth
 
-Header: Authorization: Bearer <your_jwt_token>
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
 
-Response
-Success (200):
+Authenticated internal endpoints require:
+
+```http
+Authorization: Bearer <jwt>
+```
+
+## WhatsApp Sessions
+
+- `POST /api/whatsapp/start`
+- `GET /api/whatsapp/sessions`
+- `GET /api/whatsapp/status?phone=<phone>`
+- `POST /api/whatsapp/qr/refresh`
+- `POST /api/whatsapp/restart`
+- `POST /api/whatsapp/delete`
+
+Session actions use the authenticated user's phone by default. Pass `phone` in the body or query string to manage another session.
+
+## Messages
+
+- `POST /api/messages/messages`
+- `GET /api/messages/history?page=1&limit=20&phone=<phone>&status=sent&search=text`
+- `POST /api/messages/broadcast`
+- `GET /api/messages/schedules`
+- `POST /api/messages/schedules/toggle`
+
+## Message Templates
+
+- `GET /api/messages/templates`
+- `POST /api/messages/templates`
+- `PUT /api/messages/templates/:id`
+- `DELETE /api/messages/templates/:id`
+
+## Clients
+
+- `GET /api/clients`
+- `POST /api/clients`
+- `PUT /api/clients/:id`
+- `DELETE /api/clients/:id`
+- `POST /api/clients/import/preview`
+- `POST /api/clients/import`
+
+Client import accepts either:
+
+```json
 {
-  "success": true,
-  "message": "API token generated successfully",
-  "token": "550e8400-e29b-41d4-a716-446655440000"
-}
-
-Example (cURL)
-curl -X POST http://hamza.com/api/tokens/generate \
--H "Authorization: Bearer <your_jwt_token>" \
--H "Content-Type: application/json"
-
-2. Get API Tokens
-GET /api/tokens
-Fetch all API tokens for the authenticated user.
-Authentication
-
-Header: Authorization: Bearer <your_jwt_token>
-
-Response
-Success (200):
-{
-  "success": true,
-  "message": "API tokens fetched successfully",
-  "tokens": [
+  "rows": [
     {
-      "_id": "60c72b2f9b1e8a001c8b4567",
-      "token": "550e8400-e29b-41d4-a716-446655440000",
-      "phone": "+201234567890",
-      "createdAt": "2025-05-26T18:00:00.000Z"
+      "phone": "+201112223333",
+      "name": "Client Name",
+      "tags": ["lead"],
+      "segment": "sales"
     }
   ]
 }
+```
 
-Example (cURL)
-curl -X GET http://hamza.com/api/tokens \
--H "Authorization: Bearer <your_jwt_token>"
+or CSV text:
 
-3. Revoke API Token
-POST /api/tokens/revoke
-Revoke an API token.
-Authentication
-
-Header: Authorization: Bearer <your_jwt_token>
-
-Request Body
+```json
 {
-  "tokenId": "60c72b2f9b1e8a001c8b4567"
+  "csv": "+201112223333,Client Name,lead|vip,sales"
 }
+```
 
-Response
-Success (200):
+## API Tokens
+
+- `POST /api/tokens/generate`
+- `GET /api/tokens`
+- `PUT /api/tokens/:tokenId`
+- `POST /api/tokens/:tokenId/rotate`
+- `POST /api/tokens/revoke`
+
+Token generation supports:
+
+```json
 {
-  "success": true,
-  "message": "API token revoked successfully"
+  "name": "Production",
+  "scopes": ["messages:send"],
+  "webhookUrl": "https://example.com/webhook",
+  "expiresAt": "2026-12-31T23:59:59.000Z"
 }
+```
 
-Example (cURL)
-curl -X POST http://hamza.com/api/tokens/revoke \
--H "Authorization: Bearer <your_jwt_token>" \
--H "Content-Type: application/json" \
--d '{"tokenId": "60c72b2f9b1e8a001c8b4567"}'
+The raw API token is returned only once when generated or rotated. Stored tokens are hashed.
 
-4. Send Message
-POST /api/external/messages/send
-Send a WhatsApp message to a phone number.
-Authentication
+## External API
 
-Header: X-API-Token: <your_api_token>
+External message sending requires:
 
-Request Body
-{
-  "phone": "+201234567890",
-  "message": "Your verification code is 123456"
-}
+```http
+X-API-Token: <raw_api_token>
+```
 
-Response
-Success (200):
-{
-  "success": true,
-  "message": "Message sent successfully",
-  "phone": "+201234567890"
-}
+- `POST /api/external/messages/send`
 
-Example (cURL)
-curl -X POST http://hamza.com/api/external/messages/send \
--H "X-API-Token: 550e8400-e29b-41d4-a716-446655440000" \
--H "Content-Type: application/json" \
--d '{
-  "phone": "+201234567890",
-  "message": "Your verification code is 123456"
-}'
+## Operations
 
-Notes
+- `GET /health`
+- `GET /usage`
+- `GET /rate-limits`
+- `GET /admin/dashboard`
+- `GET /admin/audit-logs`
+- `GET /admin/sessions`
+- `POST /admin/sessions/:id/disconnect`
 
-Ensure your WhatsApp account is connected via the dashboard (QR code).
-Phone numbers must include country code (e.g., +20 for Egypt).
-API tokens are permanent until revoked.
-Contact support for assistance.
-
+Admin endpoints require a JWT for a user with `role = "admin"`.
