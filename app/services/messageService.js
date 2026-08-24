@@ -1,5 +1,7 @@
 const {
   waitForWhatsAppReady,
+  prepareWhatsAppForMessage,
+  getSessionId,
 } = require("./whatsappService");
 const WhatsAppMessage = require("../models/WhatsAppMessage");
 const Client = require("../models/Client");
@@ -21,6 +23,11 @@ const sendWhatsAppMessage = async ({ user, phone, message }) => {
   }
 
   const whatsapp = await waitForWhatsAppReady(user.id, user.phone);
+  await prepareWhatsAppForMessage(
+    whatsapp,
+    getSessionId(user.id, user.phone),
+    user.phone
+  );
 
   const chatId = client.phone.endsWith("@c.us")
     ? client.phone

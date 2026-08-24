@@ -1,4 +1,8 @@
-const { waitForWhatsAppReady } = require("../services/whatsappService");
+const {
+  waitForWhatsAppReady,
+  prepareWhatsAppForMessage,
+  getSessionId,
+} = require("../services/whatsappService");
 const logger = require("../utils/logger");
 const WhatsAppMessage = require("../models/WhatsAppMessage");
 const Client = require("../models/Client");
@@ -324,6 +328,11 @@ exports.sendRandomMessages = async (req, res) => {
 
     // Initialize WhatsApp client
     const whatsapp = await waitForWhatsAppReady(userId, userPhone);
+    await prepareWhatsAppForMessage(
+      whatsapp,
+      getSessionId(userId, userPhone),
+      userPhone
+    );
 
     // Save scheduling details if repeatIntervalMs is provided
     let scheduleId;

@@ -94,7 +94,119 @@ const hasSendMessageHelper = async (client) => {
   }
 };
 
-const ensureMessagingInjected = async (client, sessionId) => {
+const patchWhatsAppUserHelpers = async (client, fallbackPhone = null) => {
+  if (!client?.pupPage) {
+    return false;
+  }
+
+  try {
+    const fallbackChatId = fallbackPhone
+      ? `${fallbackPhone.toString().replace(/\D/g, "")}@c.us`
+      : null;
+
+    return await client.pupPage.evaluate((fallbackChatId) => {
+      const toWid = (value) => {
+        if (!value) {
+          return null;
+        }
+
+        if (value._serialized || (value.user && value.server)) {
+          return value;
+        }
+
+        if (typeof value === "string") {
+          try {
+            return window.Store?.WidFactory?.createWid(value);
+          } catch (error) {
+            return null;
+          }
+        }
+
+        return null;
+      };
+
+      const getCurrentWid = () => {
+        const userStore = window.Store?.User || {};
+        const candidates = [
+          userStore.getMaybeMeUser,
+          userStore.getMeUser,
+          () => window.Store?.Conn?.wid,
+          () => window.Store?.Conn?.me,
+          () => window.Store?.Conn?.id,
+          () => window.AuthStore?.Conn?.wid,
+          () => window.AuthStore?.Conn?.me,
+          () => window.Store?.Conn?.serialize?.().wid,
+          () => window.Store?.Conn?.serialize?.().me,
+          () => window.Store?.Conn?.serialize?.().id,
+          () => window.AuthStore?.Conn?.serialize?.().wid,
+          () => window.AuthStore?.Conn?.serialize?.().me,
+          () => window.AuthStore?.Conn?.serialize?.().id,
+          () => fallbackChatId,
+        ];
+
+        for (const getWid of candidates) {
+          if (typeof getWid !== "function") {
+            continue;
+          }
+
+          try {
+            const wid = toWid(getWid());
+            if (wid) {
+              return wid;
+            }
+          } catch (error) {
+            // WhatsApp Web private APIs change often; keep trying fallbacks.
+          }
+        }
+
+        return null;
+      };
+
+      if (!window.Store) {
+        return false;
+      }
+
+      if (!window.Store.User || Object.isFrozen(window.Store.User)) {
+        window.Store.User = { ...(window.Store.User || {}) };
+      }
+
+      if (typeof window.Store.User.getMaybeMeUser !== "function") {
+        try {
+          Object.defineProperty(window.Store.User, "getMaybeMeUser", {
+            configurable: true,
+            writable: true,
+            value: getCurrentWid,
+          });
+        } catch (error) {
+          window.Store.User.getMaybeMeUser = getCurrentWid;
+        }
+      }
+
+      if (typeof window.Store.User.getMeUser !== "function") {
+        try {
+          Object.defineProperty(window.Store.User, "getMeUser", {
+            configurable: true,
+            writable: true,
+            value: getCurrentWid,
+          });
+        } catch (error) {
+          window.Store.User.getMeUser = getCurrentWid;
+        }
+      }
+
+      return {
+        patched: Boolean(getCurrentWid()),
+        hasGetMaybeMeUser: typeof window.Store.User.getMaybeMeUser === "function",
+        hasGetMeUser: typeof window.Store.User.getMeUser === "function",
+      };
+    }, fallbackChatId);
+  } catch (error) {
+    logger.warn(`Could not patch WhatsApp user helpers: ${error.message}`);
+    return { patched: false };
+  }
+};
+
+const ensureMessagingInjected = async (client, sessionId, fallbackPhone = null) => {
   if (!client?.pupPage) {
     return false;
   }
@@ -110,7 +222,13 @@ const ensureMessagingInjected = async (client, sessionId) => {
     }));
 
     if (pageState.hasSendMessage) {
-      return true;
+      const helperPatch = await patchWhatsAppUserHelpers(client, fallbackPhone);
+      if (!helperPatch.patched) {
+        logger.warn(
+          `WhatsApp user helper patch incomplete for ${sessionId}: ${JSON.stringify(helperPatch)}`
+        );
+      }
+      return helperPatch.hasGetMaybeMeUser;
     }
 
     if (pageState.authState !== "CONNECTED" || !pageState.hasRequire) {
@@ -125,6 +243,12 @@ const ensureMessagingInjected = async (client, sessionId) => {
     }
 
     await client.pupPage.evaluate(LoadUtils);
+    const helperPatch = await patchWhatsAppUserHelpers(client, fallbackPhone);
+    if (!helperPatch.patched) {
+      logger.warn(
+        `WhatsApp user helper patch incomplete for ${sessionId}: ${JSON.stringify(helperPatch)}`
+      );
+    }
 
     if (!client.info) {
       const info = await client.pupPage.evaluate(() => {
@@ -179,14 +303,25 @@ const ensureMessagingInjected = async (client, sessionId) => {
   }
 };
 
-const isWhatsAppClientReady = async (client, sessionId) => {
-  const hasMessaging = await ensureMessagingInjected(client, sessionId);
+const isWhatsAppClientReady = async (client, sessionId, fallbackPhone = null) => {
+  const hasMessaging = await ensureMessagingInjected(client, sessionId, fallbackPhone);
   if (!hasMessaging) {
     return false;
   }
 
   const state = await getClientState(client);
   return Boolean(client?.info) || state === "CONNECTED";
+};
+
+const prepareWhatsAppForMessage = async (client, sessionId, fallbackPhone = null) => {
+  const hasMessaging = await ensureMessagingInjected(client, sessionId, fallbackPhone);
+  if (!hasMessaging) {
+    const error = new Error("WhatsApp messaging helpers are not ready yet.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return true;
 };
 
 const initializeWhatsApp = async (userId, phone) => {
@@ -273,7 +408,7 @@ const initializeWhatsApp = async (userId, phone) => {
 
   try {
     await whatsapp.initialize();
-    if (await isWhatsAppClientReady(whatsapp, sessionId)) {
+    if (await isWhatsAppClientReady(whatsapp, sessionId, phone)) {
       await markSessionReady(userId, sessionId, whatsapp);
     }
     return whatsapp;
@@ -314,13 +449,13 @@ const waitForWhatsAppReady = async (userId, phone, timeoutMs = 60000) => {
     whatsapp = await initializeWhatsApp(userId, phone);
   }
 
-  if (await isWhatsAppClientReady(whatsapp, sessionId)) {
+  if (await isWhatsAppClientReady(whatsapp, sessionId, phone)) {
     return whatsapp;
   }
 
   return new Promise((resolve, reject) => {
     const interval = setInterval(async () => {
-      if (await isWhatsAppClientReady(whatsapp, sessionId)) {
+      if (await isWhatsAppClientReady(whatsapp, sessionId, phone)) {
         clearInterval(interval);
         clearTimeout(timeout);
         await markSessionReady(userId, sessionId, whatsapp);
@@ -375,6 +510,7 @@ module.exports = {
   getWhatsAppClient,
   getWhatsAppRuntimeStatus,
   waitForWhatsAppReady,
+  prepareWhatsAppForMessage,
   deleteWhatsAppClient,
   deleteLocalAuthSession,
   getSessionId,

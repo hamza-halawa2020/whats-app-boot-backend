@@ -3,7 +3,11 @@ const ScheduledMessage = require("../models/ScheduledMessage");
 const Client = require("../models/Client");
 const WhatsAppMessage = require("../models/WhatsAppMessage");
 const User = require("../models/User");
-const { waitForWhatsAppReady } = require("./whatsappService");
+const {
+  waitForWhatsAppReady,
+  prepareWhatsAppForMessage,
+  getSessionId,
+} = require("./whatsappService");
 const logger = require("../utils/logger");
 
 const timers = new Map();
@@ -18,6 +22,11 @@ const clearScheduleTimer = (scheduleId) => {
 
 const sendScheduledBatch = async (schedule, userPhone) => {
   const whatsapp = await waitForWhatsAppReady(schedule.userId, userPhone, 30000);
+  await prepareWhatsAppForMessage(
+    whatsapp,
+    getSessionId(schedule.userId, userPhone),
+    userPhone
+  );
 
   const clients = await Client.findAll({
     where: {

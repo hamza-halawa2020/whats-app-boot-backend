@@ -5,6 +5,7 @@ const messageController = require("../controllers/messageController");
 
 router.use(auth);
 router.post("/messages", messageController.sendMessage);
+router.post("/messagesRequest", messageController.sendMessage);
 router.get("/history", messageController.getMessageHistory);
 router.post("/broadcast", messageController.sendRandomMessages);
 router.get("/schedules", messageController.getSchedules);
