@@ -1,3 +1,6 @@
 node_modules/
 .env
 ngrok-v3-stable-windows-amd64.zip
+.wwebjs_auth/
+.wwebjs_cache/
+*.log

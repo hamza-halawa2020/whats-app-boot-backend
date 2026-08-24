@@ -127,10 +127,40 @@ const ensureMessagingInjected = async (client, sessionId) => {
     await client.pupPage.evaluate(LoadUtils);
 
     if (!client.info) {
-      const info = await client.pupPage.evaluate(() => ({
-        ...window.Store.Conn.serialize(),
-        wid: window.Store.User.getMeUser(),
-      }));
+      const info = await client.pupPage.evaluate(() => {
+        const getCurrentWid = () => {
+          const candidates = [
+            window.Store?.User?.getMeUser,
+            window.Store?.User?.getMaybeMeUser,
+          ];
+
+          for (const getWid of candidates) {
+            if (typeof getWid === "function") {
+              try {
+                const wid = getWid();
+                if (wid) {
+                  return wid;
+                }
+              } catch (error) {
+                // WhatsApp Web changes these private helpers often; try the next source.
+              }
+            }
+          }
+
+          return (
+            window.Store?.Conn?.wid ||
+            window.Store?.Conn?.me ||
+            window.Store?.Conn?.id ||
+            window.AuthStore?.Conn?.wid ||
+            null
+          );
+        };
+
+        return {
+          ...window.Store.Conn.serialize(),
+          wid: getCurrentWid(),
+        };
+      });
       client.info = new ClientInfo(client, info);
       client.interface = new InterfaceController(client);
     }
@@ -155,7 +185,8 @@ const isWhatsAppClientReady = async (client, sessionId) => {
     return false;
   }
 
-  return Boolean(client?.info);
+  const state = await getClientState(client);
+  return Boolean(client?.info) || state === "CONNECTED";
 };
 
 const initializeWhatsApp = async (userId, phone) => {

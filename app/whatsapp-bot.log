@@ -12,3 +12,13 @@
 2026-08-09T08:52:09.266Z [INFO]: MySQL connected successfully
 2026-08-09T08:52:09.282Z [INFO]: Resumed 0 active schedules
 2026-08-09T08:52:09.287Z [INFO]: Server started on port 3000
+2026-08-23T09:40:58.191Z [INFO]: MySQL connected successfully
+2026-08-23T09:40:58.271Z [INFO]: Resumed 0 active schedules
+2026-08-23T09:40:58.284Z [INFO]: Server started on port 3000
+2026-08-23T09:50:57.899Z [ERROR]: API Login error: Invalid login credentials
+2026-08-23T09:54:10.954Z [WARN]: WhatsApp messaging injection not ready for 34_0123654125: Evaluation failed: TypeError: window.Store.User.getMeUser is not a function
+    at pptr://__puppeteer_evaluation_script__:3:32
+2026-08-23T09:55:10.955Z [ERROR]: Error sending message: Error: WhatsApp client is not ready yet. Keep the WhatsApp page open until status becomes ready.
+2026-08-23T09:55:10.959Z [WARN]: WhatsApp ready timeout for 34_0123654125: {"hasClient":true,"hasInfo":false,"hasSendMessage":true,"state":"CONNECTED"}
+2026-08-23T09:56:10.263Z [ERROR]: Error sending message: Error: WhatsApp client is not ready yet. Keep the WhatsApp page open until status becomes ready.
+2026-08-23T09:56:10.268Z [WARN]: WhatsApp ready timeout for 34_0123654125: {"hasClient":true,"hasInfo":false,"hasSendMessage":true,"state":"CONNECTED"}
