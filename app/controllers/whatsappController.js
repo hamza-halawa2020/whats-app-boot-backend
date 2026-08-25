@@ -8,6 +8,7 @@ const {
 const WhatsAppSession = require("../models/WhatsAppSession");
 const { sendWhatsAppMessage } = require("../services/messageService");
 const logger = require("../utils/logger");
+const { trace } = require("../utils/trace");
 const { sendError } = require("../utils/responses");
 const { normalizePhoneNumber } = require("../utils/phone");
 
@@ -20,6 +21,14 @@ const waitForSessionUpdate = async (userId, sessionId, attempts = 10) => {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const session = await WhatsAppSession.findOne({
       where: { userId, sessionId },
+    });
+
+    trace("whatsapp.wait_session_update.poll", {
+      userId,
+      sessionId,
+      attempt: attempt + 1,
+      status: session?.status || null,
+      hasQr: Boolean(session?.qrCode),
     });
 
     if (session?.qrCode || ["ready", "pending", "authenticated"].includes(session?.status)) {
@@ -38,6 +47,13 @@ exports.startWhatsApp = async (req, res) => {
   try {
     const userId = req.user.id;
     const phone = getRequestedPhone(req);
+    const sessionId = phone ? `${userId}_${phone}` : null;
+
+    trace("whatsapp.start.request", {
+      userId,
+      phone,
+      sessionId,
+    });
 
     if (!phone) {
       return res
@@ -47,8 +63,15 @@ exports.startWhatsApp = async (req, res) => {
 
     await initializeWhatsApp(userId, phone);
 
-    const sessionId = `${userId}_${phone}`;
     const session = await waitForSessionUpdate(userId, sessionId);
+
+    trace("whatsapp.start.response", {
+      userId,
+      phone,
+      sessionId,
+      status: session?.status || "starting",
+      hasQr: Boolean(session?.qrCode),
+    });
 
     return res.json({
       success: true,
@@ -64,6 +87,12 @@ exports.startWhatsApp = async (req, res) => {
 
 exports.sendMessage = async (req, res) => {
   let { phone, message } = req.body;
+  trace("whatsapp.controller_send.request", {
+    userId: req.user?.id || null,
+    fromPhone: req.user?.phone || null,
+    toPhone: phone || null,
+    messageLength: message?.length || 0,
+  });
 
   if (!phone || !message) {
     return res
@@ -94,6 +123,7 @@ exports.restartWhatsAppSession = async (req, res) => {
   const phone = getRequestedPhone(req);
 
   const sessionId = `${userId}_${phone}`;
+  trace("whatsapp.restart.request", { userId, phone, sessionId });
 
   try {
     const oldClient = getWhatsAppClient(userId, phone);
@@ -107,6 +137,14 @@ exports.restartWhatsAppSession = async (req, res) => {
     await initializeWhatsApp(userId, phone);
     const session = await WhatsAppSession.findOne({
       where: { userId, sessionId },
+    });
+
+    trace("whatsapp.restart.response", {
+      userId,
+      phone,
+      sessionId,
+      status: session?.status || "starting",
+      hasQr: Boolean(session?.qrCode),
     });
 
     return res.json({
@@ -126,6 +164,7 @@ exports.deleteWhatsAppSession = async (req, res) => {
   const phone = getRequestedPhone(req);
 
   const sessionId = `${userId}_${phone}`;
+  trace("whatsapp.delete.request", { userId, phone, sessionId });
 
   try {
     const oldClient = getWhatsAppClient(userId, phone);
@@ -134,7 +173,14 @@ exports.deleteWhatsAppSession = async (req, res) => {
     }
 
     await WhatsAppSession.destroy({ where: { userId, sessionId } });
-    await deleteLocalAuthSession(sessionId);
+    const authDeleted = await deleteLocalAuthSession(sessionId);
+
+    trace("whatsapp.delete.response", {
+      userId,
+      phone,
+      sessionId,
+      authDeleted,
+    });
 
     return res.json({
       success: true,
@@ -168,16 +214,52 @@ exports.getSessionStatus = async (req, res) => {
   try {
     const phone = getRequestedPhone(req);
     const sessionId = `${req.user.id}_${phone}`;
-    const session = await WhatsAppSession.findOne({
+    let session = await WhatsAppSession.findOne({
       where: { userId: req.user.id, sessionId },
       attributes: ["id", "sessionId", "phone", "status", "qrCode", "lastActive", "createdAt"],
     });
     const runtime = await getWhatsAppRuntimeStatus(req.user.id, phone);
+    const runtimeReady =
+      runtime.hasInfo && runtime.hasSendMessage && runtime.state === "CONNECTED";
+
+    if (runtimeReady && session?.status !== "ready") {
+      await WhatsAppSession.update(
+        { status: "ready", qrCode: null, lastActive: new Date() },
+        { where: { userId: req.user.id, sessionId } }
+      );
+      session = await WhatsAppSession.findOne({
+        where: { userId: req.user.id, sessionId },
+        attributes: ["id", "sessionId", "phone", "status", "qrCode", "lastActive", "createdAt"],
+      });
+      trace("whatsapp.status.promoted_ready", {
+        userId: req.user.id,
+        phone,
+        sessionId,
+      });
+    }
+
+    const responseStatus =
+      session?.status === "ready" && !runtime.hasClient
+        ? "disconnected"
+        : session?.status || "starting";
+    const responseSession = session
+      ? { ...session.toJSON(), status: responseStatus }
+      : null;
+
+    trace("whatsapp.status.response", {
+      userId: req.user.id,
+      phone,
+      sessionId,
+      dbStatus: session?.status || null,
+      responseStatus,
+      hasQr: Boolean(session?.qrCode),
+      runtime,
+    });
 
     return res.json({
       success: true,
-      status: session?.status || "starting",
-      session: session || null,
+      status: responseStatus,
+      session: responseSession,
       runtime,
     });
   } catch (error) {

@@ -3,10 +3,12 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const app = express();
+app.disable("etag");
 const logger = require("./app/utils/logger");
 const { connectDB } = require("./app/config/database");
 const { resumeActiveSchedules } = require("./app/services/scheduleService");
 const audit = require("./app/middlewares/audit");
+const { traceHttpRequests } = require("./app/utils/trace");
 
 app.use(
   cors({
@@ -24,6 +26,16 @@ const messageLimiter = rateLimit({
 });
 
 // Middlewares
+app.use((req, res, next) => {
+  if (req.originalUrl?.startsWith("/api/")) {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+  }
+
+  next();
+});
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.set("view engine", "ejs");
@@ -39,6 +51,7 @@ const externalRoutes = require("./app/routes/external");
 const operationsRoutes = require("./app/routes/operations");
 
 app.use(audit);
+app.use(traceHttpRequests);
 app.use("/", operationsRoutes);
 app.use("/api/messages", messageLimiter, messagesRoutes);
 app.use("/api/auth", authRoutes);

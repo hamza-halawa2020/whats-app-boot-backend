@@ -12,6 +12,7 @@ const { sendWhatsAppMessage } = require("../services/messageService");
 const { Op } = require("sequelize");
 const { normalizePhoneNumber } = require("../utils/phone");
 const { sendError } = require("../utils/responses");
+const { trace } = require("../utils/trace");
 const { startSchedule, pauseSchedule } = require("../services/scheduleService");
 
 const ScheduledMessage = require("../models/ScheduledMessage");
@@ -35,6 +36,13 @@ const notifyWebhook = async (apiToken, payload) => {
 exports.sendMessage = async (req, res) => {
   let { phone, message } = req.body; 
 
+  trace("message.controller_send.request", {
+    userId: req.user?.id || null,
+    fromPhone: req.user?.phone || null,
+    toPhone: phone || null,
+    messageLength: message?.length || 0,
+  });
+
   if (!phone || !message) {
     return res.status(400).json({
       success: false,
@@ -55,6 +63,16 @@ exports.sendMessage = async (req, res) => {
       phone: result.phone,
     });
   } catch (error) {
+    trace(
+      "message.controller_send.error",
+      {
+        userId: req.user?.id || null,
+        toPhone: phone || null,
+        error: error.message,
+        statusCode: error.statusCode || 500,
+      },
+      error.statusCode && error.statusCode < 500 ? "warn" : "error"
+    );
     logger.error(`Error sending message: ${error}`);
     return sendError(res, error);
   }
