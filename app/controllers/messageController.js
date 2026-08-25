@@ -89,8 +89,22 @@ exports.generateApiToken = async (req, res) => {
   } = req.body;
 
   try {
+    trace("tokens.generate.request", {
+      requestId: req.requestId || null,
+      userId,
+      userPhone,
+      name,
+      scopes,
+      hasWebhookUrl: Boolean(webhookUrl),
+      expiresAt,
+    });
     // Check if user has a WhatsApp client ready
     await waitForWhatsAppReady(userId, userPhone);
+    trace("tokens.generate.whatsapp_ready", {
+      requestId: req.requestId || null,
+      userId,
+      userPhone,
+    });
 
     const rawToken = ApiToken.generateRawToken();
     const apiToken = ApiToken.build({
@@ -103,6 +117,12 @@ exports.generateApiToken = async (req, res) => {
       expiresAt,
     });
     await apiToken.save();
+    trace("tokens.generate.saved", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId: apiToken.id,
+      scopes: apiToken.scopes,
+    });
 
     return res.status(200).json({
       success: true,
@@ -110,6 +130,11 @@ exports.generateApiToken = async (req, res) => {
       token: rawToken,
     });
   } catch (error) {
+    trace("tokens.generate.error", {
+      requestId: req.requestId || null,
+      userId,
+      error: error.message,
+    }, "error");
     logger.error(`Error generating API token: ${error}`);
     return sendError(res, error);
   }
@@ -117,8 +142,21 @@ exports.generateApiToken = async (req, res) => {
 
 exports.sendMessageWithApiToken = async (req, res) => {
   let { phone, message } = req.body;
+  trace("message.external_send.request", {
+    requestId: req.requestId || null,
+    userId: req.user?.id || null,
+    apiTokenId: req.apiToken?.id || null,
+    fromPhone: req.user?.phone || null,
+    toPhone: phone || null,
+    messageLength: message?.length || 0,
+  });
 
   if (!phone || !message) {
+    trace("message.external_send.validation_failed", {
+      requestId: req.requestId || null,
+      hasPhone: Boolean(phone),
+      hasMessage: Boolean(message),
+    }, "warn");
     return res.status(400).json({
       success: false,
       error: "Phone and message are required",
@@ -131,6 +169,15 @@ exports.sendMessageWithApiToken = async (req, res) => {
       phone,
       message,
     });
+    trace("message.external_send.sent", {
+      requestId: req.requestId || null,
+      userId: req.user?.id || null,
+      apiTokenId: req.apiToken?.id || null,
+      phone: result.phone,
+      messageId: result.messageId,
+      providerMessageId: result.providerMessageId,
+      status: result.status,
+    });
 
     await notifyWebhook(req.apiToken, {
       event: "message.sent",
@@ -138,6 +185,11 @@ exports.sendMessageWithApiToken = async (req, res) => {
       messageId: result.messageId,
       providerMessageId: result.providerMessageId,
       status: result.status,
+    });
+    trace("message.external_send.webhook_notified", {
+      requestId: req.requestId || null,
+      apiTokenId: req.apiToken?.id || null,
+      hasWebhookUrl: Boolean(req.apiToken?.webhookUrl),
     });
 
     return res.status(200).json({
@@ -153,6 +205,14 @@ exports.sendMessageWithApiToken = async (req, res) => {
       phone,
       error: error.message,
     });
+    trace("message.external_send.error", {
+      requestId: req.requestId || null,
+      userId: req.user?.id || null,
+      apiTokenId: req.apiToken?.id || null,
+      phone,
+      error: error.message,
+      statusCode: error.statusCode || 500,
+    }, error.statusCode && error.statusCode < 500 ? "warn" : "error");
     logger.error(`Error sending message with API token: ${error}`);
     return sendError(res, error);
   }
@@ -162,6 +222,10 @@ exports.getApiTokens = async (req, res) => {
   const userId = req.user.id;
 
   try {
+    trace("tokens.list.request", {
+      requestId: req.requestId || null,
+      userId,
+    });
     const tokens = await ApiToken.findAll({
       where: { userId },
       attributes: [
@@ -175,12 +239,22 @@ exports.getApiTokens = async (req, res) => {
         "createdAt",
       ],
     });
+    trace("tokens.list.response", {
+      requestId: req.requestId || null,
+      userId,
+      count: tokens.length,
+    });
     return res.status(200).json({
       success: true,
       message: "API tokens fetched successfully",
       tokens,
     });
   } catch (error) {
+    trace("tokens.list.error", {
+      requestId: req.requestId || null,
+      userId,
+      error: error.message,
+    }, "error");
     logger.error(`Error fetching API tokens: ${error}`);
     return sendError(res, error);
   }
@@ -192,8 +266,19 @@ exports.updateApiToken = async (req, res) => {
   const { name, scopes, webhookUrl, expiresAt } = req.body;
 
   try {
+    trace("tokens.update.request", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+      fields: Object.keys(req.body || {}),
+    });
     const apiToken = await ApiToken.findOne({ where: { id: tokenId, userId } });
     if (!apiToken) {
+      trace("tokens.update.not_found", {
+        requestId: req.requestId || null,
+        userId,
+        tokenId,
+      }, "warn");
       return res.status(404).json({
         success: false,
         error: "Token not found or not authorized",
@@ -206,6 +291,11 @@ exports.updateApiToken = async (req, res) => {
     if (expiresAt !== undefined) apiToken.expiresAt = expiresAt || null;
 
     await apiToken.save();
+    trace("tokens.update.saved", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId: apiToken.id,
+    });
 
     return res.json({
       success: true,
@@ -222,6 +312,12 @@ exports.updateApiToken = async (req, res) => {
       },
     });
   } catch (error) {
+    trace("tokens.update.error", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+      error: error.message,
+    }, "error");
     logger.error(`Error updating API token: ${error}`);
     return sendError(res, error);
   }
@@ -232,8 +328,18 @@ exports.rotateApiToken = async (req, res) => {
   const { tokenId } = req.params;
 
   try {
+    trace("tokens.rotate.request", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+    });
     const apiToken = await ApiToken.findOne({ where: { id: tokenId, userId } });
     if (!apiToken) {
+      trace("tokens.rotate.not_found", {
+        requestId: req.requestId || null,
+        userId,
+        tokenId,
+      }, "warn");
       return res.status(404).json({
         success: false,
         error: "Token not found or not authorized",
@@ -244,6 +350,11 @@ exports.rotateApiToken = async (req, res) => {
     apiToken.token = ApiToken.hashToken(rawToken);
     apiToken.lastUsedAt = null;
     await apiToken.save();
+    trace("tokens.rotate.saved", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId: apiToken.id,
+    });
 
     return res.json({
       success: true,
@@ -251,6 +362,12 @@ exports.rotateApiToken = async (req, res) => {
       token: rawToken,
     });
   } catch (error) {
+    trace("tokens.rotate.error", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+      error: error.message,
+    }, "error");
     logger.error(`Error rotating API token: ${error}`);
     return sendError(res, error);
   }
@@ -261,6 +378,11 @@ exports.revokeApiToken = async (req, res) => {
   const { tokenId } = req.body;
 
   if (!tokenId) {
+    trace("tokens.revoke.validation_failed", {
+      requestId: req.requestId || null,
+      userId,
+      reason: "missing_token_id",
+    }, "warn");
     return res.status(400).json({
       success: false,
       error: "Token ID is required",
@@ -268,6 +390,11 @@ exports.revokeApiToken = async (req, res) => {
   }
 
   try {
+    trace("tokens.revoke.request", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+    });
     const token = await ApiToken.findOne({
       where: {
         id: tokenId,
@@ -276,6 +403,11 @@ exports.revokeApiToken = async (req, res) => {
     });
 
     if (!token) {
+      trace("tokens.revoke.not_found", {
+        requestId: req.requestId || null,
+        userId,
+        tokenId,
+      }, "warn");
       return res.status(404).json({
         success: false,
         error: "Token not found or not authorized",
@@ -283,12 +415,23 @@ exports.revokeApiToken = async (req, res) => {
     }
 
     await token.destroy();
+    trace("tokens.revoke.deleted", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+    });
 
     return res.status(200).json({
       success: true,
       message: "API token revoked successfully",
     });
   } catch (error) {
+    trace("tokens.revoke.error", {
+      requestId: req.requestId || null,
+      userId,
+      tokenId,
+      error: error.message,
+    }, "error");
     logger.error(`Error revoking API token: ${error}`);
     return sendError(res, error);
   }
@@ -305,6 +448,17 @@ exports.sendRandomMessages = async (req, res) => {
   } = req.body;
   const userId = req.user.id;
   const userPhone = req.user.phone;
+  trace("message.broadcast.request", {
+    requestId: req.requestId || null,
+    userId,
+    userPhone,
+    phoneNumbersCount: Array.isArray(phoneNumbers) ? phoneNumbers.length : 0,
+    messagePoolCount: Array.isArray(messagePool) ? messagePool.length : 0,
+    batchSize,
+    intervalMs,
+    repeatIntervalMs: repeatIntervalMs || null,
+    repeatCount,
+  });
 
   const defaultMessages = [
     "Hello! Stay tuned for updates.",
@@ -323,6 +477,11 @@ exports.sendRandomMessages = async (req, res) => {
       !Array.isArray(phoneNumbers) ||
       phoneNumbers.length === 0
     ) {
+      trace("message.broadcast.validation_failed", {
+        requestId: req.requestId || null,
+        userId,
+        reason: "missing_phone_numbers",
+      }, "warn");
       return res
         .status(400)
         .json({ success: false, error: "Phone numbers are required" });
@@ -330,6 +489,11 @@ exports.sendRandomMessages = async (req, res) => {
 
     // Validate and clean phone numbers
     const cleanedPhoneNumbers = phoneNumbers.map(normalizePhoneNumber);
+    trace("message.broadcast.normalized", {
+      requestId: req.requestId || null,
+      userId,
+      cleanedPhoneNumbersCount: cleanedPhoneNumbers.length,
+    });
 
     // Save or update clients
     const clients = [];
@@ -343,6 +507,11 @@ exports.sendRandomMessages = async (req, res) => {
       }
       clients.push(client);
     }
+    trace("message.broadcast.clients_ready", {
+      requestId: req.requestId || null,
+      userId,
+      clientsCount: clients.length,
+    });
 
     // Initialize WhatsApp client
     const whatsapp = await waitForWhatsAppReady(userId, userPhone);
@@ -351,6 +520,11 @@ exports.sendRandomMessages = async (req, res) => {
       getSessionId(userId, userPhone),
       userPhone
     );
+    trace("message.broadcast.whatsapp_ready", {
+      requestId: req.requestId || null,
+      userId,
+      userPhone,
+    });
 
     // Save scheduling details if repeatIntervalMs is provided
     let scheduleId;
@@ -364,6 +538,13 @@ exports.sendRandomMessages = async (req, res) => {
       });
       await scheduledMessage.save();
       scheduleId = scheduledMessage.id;
+      trace("message.broadcast.schedule_created", {
+        requestId: req.requestId || null,
+        userId,
+        scheduleId,
+        repeatIntervalMs,
+        repeatCount,
+      });
     }
 
     // Function to send a batch of messages
@@ -436,10 +617,23 @@ exports.sendRandomMessages = async (req, res) => {
     let failedCount = 0;
     const errors = [];
     for (const [index, batch] of batches.entries()) {
+      trace("message.broadcast.batch.start", {
+        requestId: req.requestId || null,
+        userId,
+        batchIndex: index + 1,
+        batchSize: batch.length,
+      });
       const result = await sendBatch(batch);
       sentCount += result.sentCount;
       failedCount += result.failedCount;
       errors.push(...result.errors);
+      trace("message.broadcast.batch.done", {
+        requestId: req.requestId || null,
+        userId,
+        batchIndex: index + 1,
+        sentCount: result.sentCount,
+        failedCount: result.failedCount,
+      });
       if (index < batches.length - 1) {
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
@@ -447,7 +641,20 @@ exports.sendRandomMessages = async (req, res) => {
 
     if (repeatIntervalMs && repeatIntervalMs > 0) {
       await startSchedule(scheduleId, userPhone, repeatIntervalMs);
+      trace("message.broadcast.schedule_started", {
+        requestId: req.requestId || null,
+        userId,
+        scheduleId,
+      });
     }
+    trace("message.broadcast.response", {
+      requestId: req.requestId || null,
+      userId,
+      total: clients.length,
+      sentCount,
+      failedCount,
+      scheduleId: scheduleId || null,
+    });
 
     return res.status(200).json({
       success: true,
@@ -461,6 +668,12 @@ exports.sendRandomMessages = async (req, res) => {
       scheduleId: scheduleId || null,
     });
   } catch (error) {
+    trace("message.broadcast.error", {
+      requestId: req.requestId || null,
+      userId,
+      error: error.message,
+      statusCode: error.statusCode || 500,
+    }, error.statusCode && error.statusCode < 500 ? "warn" : "error");
     logger.error(`sendRandomMessages error: ${error}`);
     return sendError(res, error);
   }
