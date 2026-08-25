@@ -1,4 +1,5 @@
 const { verifyToken } = require('../services/authService');
+const { trace } = require("../utils/trace");
 
 const auth = async (req, res, next) => {
   try {
@@ -12,8 +13,19 @@ const auth = async (req, res, next) => {
     
     req.user = user;
     req.token = token;
+    trace("auth.jwt.success", {
+      requestId: req.requestId || null,
+      userId: user.id,
+      phone: user.phone || null,
+      url: req.originalUrl,
+    });
     next();
   } catch (error) {
+    trace("auth.jwt.failed", {
+      requestId: req.requestId || null,
+      url: req.originalUrl,
+      error: error.message,
+    }, "warn");
     res.status(401).json({ error: 'Please authenticate' });
   }
 };

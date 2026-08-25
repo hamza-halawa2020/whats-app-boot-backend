@@ -5,13 +5,24 @@ const logger = require("../utils/logger");
 const Client = require("../models/Client");
 const { normalizePhoneNumber } = require("../utils/phone");
 const { sendError } = require("../utils/responses");
+const { trace } = require("../utils/trace");
 
 exports.getGroups = async (req, res) => {
   const userId = req.user.id;
   const userPhone = req.user.phone;
 
   try {
+    trace("groups.list.request", {
+      requestId: req.requestId || null,
+      userId,
+      userPhone,
+    });
     const whatsapp = await waitForWhatsAppReady(userId, userPhone);
+    trace("groups.list.whatsapp_ready", {
+      requestId: req.requestId || null,
+      userId,
+      userPhone,
+    });
 
     const chats = await whatsapp.getChats();
     const groups = chats
@@ -21,6 +32,12 @@ exports.getGroups = async (req, res) => {
         name: chat.name || "Unnamed Group",
         participantCount: chat.groupMetadata?.participants.length || 0,
       }));
+    trace("groups.list.response", {
+      requestId: req.requestId || null,
+      userId,
+      chatsCount: chats.length,
+      groupsCount: groups.length,
+    });
 
     return res.status(200).json({
       success: true,
@@ -28,6 +45,12 @@ exports.getGroups = async (req, res) => {
       groups,
     });
   } catch (error) {
+    trace("groups.list.error", {
+      requestId: req.requestId || null,
+      userId,
+      userPhone,
+      error: error.message,
+    }, "error");
     logger.error(`Error fetching groups: ${error}`);
     return sendError(res, error);
   }
@@ -37,8 +60,18 @@ exports.getGroupParticipants = async (req, res) => {
   const userId = req.user.id;
   const userPhone = req.user.phone;
   let { groupId } = req.params;
+  trace("groups.participants.request", {
+    requestId: req.requestId || null,
+    userId,
+    userPhone,
+    groupId: groupId || null,
+  });
 
   if (!groupId) {
+    trace("groups.participants.validation_failed", {
+      requestId: req.requestId || null,
+      reason: "missing_group_id",
+    }, "warn");
     return res.status(400).json({
       success: false,
       error: "Group ID is required",
@@ -53,6 +86,11 @@ exports.getGroupParticipants = async (req, res) => {
   // Validate groupId format
   const groupIdRegex = /^\d+@g\.us$/;
   if (!groupIdRegex.test(groupId)) {
+    trace("groups.participants.validation_failed", {
+      requestId: req.requestId || null,
+      groupId,
+      reason: "invalid_group_id",
+    }, "warn");
     return res.status(400).json({
       success: false,
       error: "Invalid group ID format. Must be like '123456789@g.us'",
@@ -61,9 +99,19 @@ exports.getGroupParticipants = async (req, res) => {
 
   try {
     const whatsapp = await waitForWhatsAppReady(userId, userPhone);
+    trace("groups.participants.whatsapp_ready", {
+      requestId: req.requestId || null,
+      userId,
+      groupId,
+    });
 
     const chat = await whatsapp.getChatById(groupId);
     if (!chat || !chat.isGroup) {
+      trace("groups.participants.invalid_chat", {
+        requestId: req.requestId || null,
+        userId,
+        groupId,
+      }, "warn");
       return res.status(400).json({
         success: false,
         error: "Invalid group ID or not a group",
@@ -96,6 +144,12 @@ exports.getGroupParticipants = async (req, res) => {
         isLinkedDevice,
       });
     }
+    trace("groups.participants.extracted", {
+      requestId: req.requestId || null,
+      userId,
+      groupId,
+      participantsCount: participants.length,
+    });
 
     // Save participants as Clients
     let addedCount = 0;
@@ -135,6 +189,14 @@ exports.getGroupParticipants = async (req, res) => {
         skippedCount++;
       }
     }
+    trace("groups.participants.processed", {
+      requestId: req.requestId || null,
+      userId,
+      groupId,
+      addedCount,
+      skippedCount,
+      invalidCount,
+    });
 
     return res.status(200).json({
       success: true,
@@ -147,6 +209,12 @@ exports.getGroupParticipants = async (req, res) => {
       invalidClients: invalidCount,
     });
   } catch (error) {
+    trace("groups.participants.error", {
+      requestId: req.requestId || null,
+      userId,
+      groupId,
+      error: error.message,
+    }, "error");
     logger.error(`Error fetching group participants for group ${groupId}: ${error}`);
     return sendError(res, error);
   }
