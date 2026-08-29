@@ -38,6 +38,16 @@ app.use((req, res, next) => {
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use((error, req, res, next) => {
+  if (error instanceof SyntaxError && error.status === 400 && "body" in error) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid JSON body. Use double quotes for property names and remove trailing commas.",
+    });
+  }
+
+  return next(error);
+});
 app.set("view engine", "ejs");
 
 // Routes

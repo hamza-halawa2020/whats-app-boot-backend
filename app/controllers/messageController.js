@@ -62,9 +62,12 @@ exports.sendMessage = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Message sent successfully",
+      message: "Message accepted by WhatsApp client",
       phone: result.phone,
       senderPhone: result.senderPhone,
+      status: result.status,
+      messageId: result.messageId,
+      providerMessageId: result.providerMessageId,
     });
   } catch (error) {
     trace(

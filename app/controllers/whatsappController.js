@@ -18,7 +18,7 @@ const getRequestedPhone = (req) =>
     ? normalizePhoneNumber(req.body?.phone || req.query?.phone)
     : req.user.phone;
 
-const waitForSessionUpdate = async (userId, sessionId, attempts = 10) => {
+const waitForSessionUpdate = async (userId, sessionId, attempts = 20) => {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const session = await WhatsAppSession.findOne({
       where: { userId, sessionId },
@@ -32,8 +32,19 @@ const waitForSessionUpdate = async (userId, sessionId, attempts = 10) => {
       hasQr: Boolean(session?.qrCode),
     });
 
-    if (session?.qrCode || ["ready", "pending", "authenticated"].includes(session?.status)) {
+    if (session?.qrCode) {
       return session;
+    }
+
+    if (["pending", "authenticated"].includes(session?.status)) {
+      return session;
+    }
+
+    if (session?.status === "ready") {
+      const runtime = await getWhatsAppRuntimeStatus(userId, session.phone);
+      if (runtime.state === "CONNECTED" && runtime.hasSendMessage) {
+        return session;
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -61,6 +72,14 @@ exports.startWhatsApp = async (req, res) => {
         .status(400)
         .json({ success: false, error: "User phone is required" });
     }
+
+    await WhatsAppSession.upsert({
+      userId,
+      sessionId,
+      phone,
+      status: "starting",
+      qrCode: null,
+    });
 
     await initializeWhatsApp(userId, phone);
 
@@ -110,8 +129,12 @@ exports.sendMessage = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Message sent successfully",
+      message: "Message accepted by WhatsApp client",
       phone: result.phone,
+      senderPhone: result.senderPhone,
+      status: result.status,
+      messageId: result.messageId,
+      providerMessageId: result.providerMessageId,
     });
   } catch (error) {
     logger.error(`Error sending message: ${error}`);
@@ -141,7 +164,14 @@ exports.restartWhatsAppSession = async (req, res) => {
     }
 
     await WhatsAppSession.destroy({ where: { userId, sessionId } });
-    await deleteLocalAuthSession(sessionId);
+    const authDeleted = await deleteLocalAuthSession(sessionId);
+    if (!authDeleted) {
+      trace("whatsapp.restart.auth_locked", { userId, phone, sessionId }, "warn");
+      return res.status(409).json({
+        success: false,
+        error: "WhatsApp session files are still locked by Chrome. Wait a few seconds, close any old Chrome window for this session, then restart again.",
+      });
+    }
 
     await initializeWhatsApp(userId, phone);
     const session = await WhatsAppSession.findOne({

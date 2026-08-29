@@ -8,6 +8,7 @@ const WhatsAppSession = require("../models/WhatsAppSession");
 const Client = require("../models/Client");
 const { normalizePhoneNumber } = require("../utils/phone");
 const { trace } = require("../utils/trace");
+const { sendTextViaWWebJS } = require("./whatsappDirectSend");
 
 const addCandidatePhone = (phones, phone) => {
   if (!phone) {
@@ -101,6 +102,103 @@ const sendTextMessage = async (whatsapp, chatId, message) => {
     return null;
   };
 
+  const findSubmittedMessageAfterSerializeFailure = async (
+    deliveryChatId,
+    providerChatId,
+    content,
+    sentAfterMs
+  ) =>
+    whatsapp.pupPage.evaluate(
+      async (deliveryChatId, providerChatId, content, sentAfterMs) => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const candidateChatIds = [providerChatId, deliveryChatId].filter(Boolean);
+        const sentAfterSeconds = Math.floor((sentAfterMs - 10000) / 1000);
+
+        const getSerialized = (value) => {
+          if (!value) {
+            return null;
+          }
+
+          if (typeof value === "string") {
+            return value;
+          }
+
+          if (typeof value._serialized === "string") {
+            return value._serialized;
+          }
+
+          if (value.user && value.server) {
+            return `${value.user}@${value.server}`;
+          }
+
+          return null;
+        };
+
+        const isMatchingMessage = (msg) => {
+          const bodyMatches = msg.body === content;
+          const isOutgoing = msg.id?.fromMe || msg.fromMe || msg.self === "out";
+          const isRecent = !msg.t || msg.t >= sentAfterSeconds;
+          const remoteId = getSerialized(msg.id?.remote || msg.to);
+          const remoteMatches = !remoteId || candidateChatIds.includes(remoteId);
+          return bodyMatches && isOutgoing && isRecent && remoteMatches;
+        };
+
+        const serializeMatch = (matchingMessage, chatId, attempt) => ({
+          providerMessageId: matchingMessage.id._serialized,
+          chatId,
+          ack: matchingMessage.ack ?? null,
+          attempt,
+        });
+
+        for (let attempt = 1; attempt <= 10; attempt++) {
+          for (const candidateChatId of candidateChatIds) {
+            const chat = await window.WWebJS.getChat(candidateChatId, {
+              getAsModel: false,
+            });
+
+            if (!chat?.msgs?.getModelsArray) {
+              continue;
+            }
+
+            const messages = chat.msgs.getModelsArray();
+            const matchingMessage = [...messages]
+              .reverse()
+              .find(isMatchingMessage);
+
+            if (matchingMessage?.id?._serialized) {
+              return serializeMatch(matchingMessage, candidateChatId, attempt);
+            }
+          }
+
+          const storeMessages =
+            window.require("WAWebCollections").Msg?.getModelsArray?.() || [];
+          const storeMatch = [...storeMessages].reverse().find(isMatchingMessage);
+          if (storeMatch?.id?._serialized) {
+            return serializeMatch(storeMatch, getSerialized(storeMatch.id.remote), attempt);
+          }
+
+          await wait(500);
+        }
+
+        return null;
+      },
+      deliveryChatId,
+      providerChatId,
+      content,
+      sentAfterMs
+    );
+
+  const getSendChatIds = (deliveryChatId, providerChatId) => {
+    const ids = [];
+    if (deliveryChatId) {
+      ids.push(deliveryChatId);
+    }
+    if (providerChatId && providerChatId !== deliveryChatId) {
+      ids.push(providerChatId);
+    }
+    return [...new Set(ids)];
+  };
+
   const registeredWid = await whatsapp.getNumberId(chatId);
   trace("message.service.provider_number_check", {
     chatId,
@@ -115,122 +213,245 @@ const sendTextMessage = async (whatsapp, chatId, message) => {
   }
 
   const providerChatId = registeredWid._serialized || chatId;
+  const deliveryChatId = chatId;
+  const sendChatIds = getSendChatIds(deliveryChatId, providerChatId);
   trace("message.service.provider_chat_resolved", {
     requestedChatId: chatId,
     providerChatId,
+    deliveryChatId,
+    sendChatIds,
   });
 
-  const sendDirectStoreMessage = async () =>
-    whatsapp.pupPage.evaluate(async (providerChatId, content) => {
-      const chatWid = window.Store.WidFactory.createWid(providerChatId);
-      const chat = await window.Store.Chat.find(chatWid);
-
-      if (!chat) {
-        throw new Error(`Chat not found for ${providerChatId}`);
-      }
-
-      const meUser =
-        window.Store.User?.getMeUser?.() ||
-        window.Store.User?.getMaybeMeUser?.() ||
-        window.WWebJS?.meUserWid;
-
-      if (!meUser) {
-        throw new Error("WhatsApp current user id is not available.");
-      }
-
-      const newId = await window.Store.MsgKey.newId();
-      const newMsgId = new window.Store.MsgKey({
-        from: meUser,
-        to: chat.id,
-        id: newId,
-        participant: chat.id.isGroup() ? meUser : undefined,
-        selfDir: "out",
-      });
-      const ephemeralFields = window.Store.EphemeralFields.getEphemeralFields(chat);
-      const outgoingMessage = {
-        id: newMsgId,
-        ack: 0,
-        body: content,
-        from: meUser,
-        to: chat.id,
-        local: true,
-        self: "out",
-        t: parseInt(new Date().getTime() / 1000, 10),
-        isNewMsg: true,
-        type: "chat",
-        ...ephemeralFields,
-      };
-
-      await window.Store.SendMessage.addAndSendMsgToChat(chat, outgoingMessage);
-
-      const widToString = (wid) => {
-        if (!wid) {
-          return null;
-        }
-
-        if (typeof wid === "string") {
-          return wid;
-        }
-
-        if (typeof wid._serialized === "string") {
-          return wid._serialized;
-        }
-
-        if (wid.user && wid.server) {
-          return `${wid.user}@${wid.server}`;
-        }
-
-        return null;
-      };
-
-      return {
-        id: {
-          _serialized:
-            typeof newMsgId._serialized === "string"
-              ? newMsgId._serialized
-              : `${widToString(meUser)}_${widToString(chat.id)}_${newId}`,
-        },
-      };
-    }, providerChatId, message);
+  const openedChatId = null;
 
   let sent;
-  let mode = "client_send_message";
+  let mode = "wwebjs_direct";
+  let usedChatId = null;
+  const sendStartedAt = Date.now();
+  const isSerializeError = (error) =>
+    /getMessageModel|reading 'serialize'|reading "serialize"/i.test(error?.message || "");
 
-  if (providerChatId.endsWith("@lid")) {
-    mode = "direct_store_send_message";
-    sent = await sendDirectStoreMessage();
+  const tryRecoverAfterSerializeError = async (error, targetChatId) => {
+    const recoveredMessage = await findSubmittedMessageAfterSerializeFailure(
+      deliveryChatId,
+      providerChatId,
+      message,
+      sendStartedAt
+    );
+
+    if (!recoveredMessage?.providerMessageId) {
+      return null;
+    }
+
+    trace("message.service.provider_send.recovered_after_serialize_error", {
+      chatId,
+      providerChatId,
+      deliveryChatId,
+      targetChatId,
+      recoveredChatId: recoveredMessage.chatId,
+      providerMessageId: recoveredMessage.providerMessageId,
+      ack: recoveredMessage.ack,
+      attempt: recoveredMessage.attempt,
+      error: error.message,
+    }, "warn");
+
+    return { id: { _serialized: recoveredMessage.providerMessageId } };
+  };
+
+  trace("message.service.provider_send.direct.before", {
+    chatId,
+    sendChatIds,
+    deliveryChatId,
+    providerChatId,
+  });
+
+  const directResult = await sendTextViaWWebJS(
+    whatsapp,
+    deliveryChatId,
+    providerChatId,
+    message
+  );
+  if (directResult?.success) {
+    sent = { id: { _serialized: directResult.providerMessageId } };
+    usedChatId = directResult.chatId;
+    mode =
+      directResult.chatId !== deliveryChatId
+        ? "wwebjs_direct_lid"
+        : "wwebjs_direct";
+    trace("message.service.provider_send.direct.success", {
+      chatId,
+      usedChatId,
+      providerMessageId: directResult.providerMessageId,
+      ack: directResult.ack,
+      resolveSource: directResult.resolveSource,
+      mode,
+    });
   } else {
-    try {
-      sent = await whatsapp.sendMessage(providerChatId, message, {
-        sendSeen: false,
-      });
-    } catch (error) {
-      if (!/getMessageModel|reading 'serialize'|reading "serialize"/i.test(error.message || "")) {
+    const recoveredAfterDirect = await findSubmittedMessageAfterSerializeFailure(
+      deliveryChatId,
+      providerChatId,
+      message,
+      sendStartedAt
+    );
+
+    if (recoveredAfterDirect?.providerMessageId) {
+      sent = { id: { _serialized: recoveredAfterDirect.providerMessageId } };
+      usedChatId = recoveredAfterDirect.chatId;
+      mode = "wwebjs_direct_recovered";
+      trace("message.service.provider_send.direct.recovered", {
+        chatId,
+        usedChatId,
+        providerMessageId: recoveredAfterDirect.providerMessageId,
+        attempt: recoveredAfterDirect.attempt,
+        directErrors: directResult?.errors || [],
+      }, "warn");
+    } else {
+    trace("message.service.provider_send.direct.failed", {
+      chatId,
+      sendChatIds,
+      errors: directResult?.errors || [],
+    }, "warn");
+
+    let lastError = null;
+    mode = "client_send_message";
+
+    for (let index = 0; index < sendChatIds.length; index++) {
+      const targetChatId = sendChatIds[index];
+      const isLastAttempt = index === sendChatIds.length - 1;
+
+      try {
+        trace("message.service.provider_send.attempt", {
+          chatId,
+          targetChatId,
+          attempt: index + 1,
+          totalAttempts: sendChatIds.length,
+        });
+
+        sent = await whatsapp.sendMessage(targetChatId, message, {
+          sendSeen: false,
+        });
+        usedChatId = targetChatId;
+        if (targetChatId !== deliveryChatId) {
+          mode = "client_send_message_lid";
+        }
+
+        const fallbackProviderMessageId = normalizeProviderMessageId(sent?.id);
+        if (fallbackProviderMessageId) {
+          break;
+        }
+
+        const recoveredFromFallback = await tryRecoverAfterSerializeError(
+          new Error("client_send_message returned without message id"),
+          targetChatId
+        );
+        if (recoveredFromFallback) {
+          sent = recoveredFromFallback;
+          mode = "client_send_message_recovered";
+          break;
+        }
+
+        if (!isLastAttempt) {
+          trace("message.service.provider_send.retry_next_chat_id", {
+            chatId,
+            failedChatId: targetChatId,
+            nextChatId: sendChatIds[index + 1],
+            error: "missing_provider_message_id",
+          }, "warn");
+          continue;
+        }
+
+        lastError = new Error("WhatsApp did not confirm the message was sent.");
+        lastError.statusCode = 424;
+        break;
+      } catch (error) {
+        lastError = error;
+
+        if (isSerializeError(error)) {
+          const recovered = await tryRecoverAfterSerializeError(error, targetChatId);
+          if (recovered) {
+            sent = recovered;
+            usedChatId = targetChatId;
+            mode = "client_send_message_recovered";
+            break;
+          }
+        }
+
+        if (!isLastAttempt) {
+          trace("message.service.provider_send.retry_next_chat_id", {
+            chatId,
+            failedChatId: targetChatId,
+            nextChatId: sendChatIds[index + 1],
+            error: error.message,
+          }, "warn");
+          continue;
+        }
+
+        if (isSerializeError(error)) {
+          const recoveredAfterFailure = await tryRecoverAfterSerializeError(
+            error,
+            targetChatId
+          );
+          if (recoveredAfterFailure) {
+            sent = recoveredAfterFailure;
+            usedChatId = targetChatId;
+            mode = "client_send_message_recovered";
+            break;
+          }
+
+          error.statusCode = 424;
+          error.message =
+            "WhatsApp sent no confirmation for this message. Try opening the chat once in WhatsApp Web, then send again.";
+          trace("message.service.provider_send.unconfirmed_after_serialize_error", {
+            chatId,
+            providerChatId,
+            deliveryChatId,
+            sendChatIds,
+            directErrors: directResult?.errors || [],
+          }, "error");
+          throw error;
+        }
+
+        trace("message.service.provider_send.failed", {
+          chatId,
+          providerChatId,
+          deliveryChatId,
+          targetChatId,
+          error: error.message,
+        }, "error");
         throw error;
       }
+    }
 
-      trace("message.service.provider_send.fallback", {
-        chatId,
-        error: error.message,
-      }, "warn");
-
-      mode = "direct_store_send_message";
-      sent = await sendDirectStoreMessage();
+    if (!sent && lastError) {
+      throw lastError;
+    }
     }
   }
 
   const providerMessageId = normalizeProviderMessageId(sent?.id);
 
+  trace("message.service.provider_send.confirmed", {
+    chatId,
+    providerChatId,
+    deliveryChatId,
+    usedChatId,
+    openedChatId,
+    providerMessageId,
+    mode,
+    sentIdType: sent?.id?.constructor?.name || typeof sent?.id,
+  });
+
   if (!providerMessageId) {
     const error = new Error("WhatsApp did not confirm the message was sent.");
-    error.statusCode = 502;
+    error.statusCode = 424;
     throw error;
   }
 
   return {
     providerMessageId,
     returnedMessage: true,
-    chatId: providerChatId,
+    chatId: usedChatId || deliveryChatId,
+    providerChatId,
     mode,
   };
 };
@@ -324,6 +545,8 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
     userId: user.id,
     sessionId,
     providerMessageId: sentMessage.providerMessageId,
+    chatId: sentMessage.chatId,
+    providerChatId: sentMessage.providerChatId,
     sendMode: sentMessage.mode,
     returnedMessage: sentMessage.returnedMessage,
   });
@@ -334,7 +557,7 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
     phone: normalizedPhone,
     message,
     providerMessageId: sentMessage.providerMessageId,
-    status: "sent",
+    status: "pending",
   }).save();
 
   trace("message.service.saved", {
