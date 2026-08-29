@@ -113,7 +113,7 @@ const isPuppeteerTargetClosedError = (error) =>
   /Session closed|Target closed|Protocol error/i.test(error?.message || "");
 
 const isPuppeteerNavigationError = (error) =>
-  /Execution context was destroyed|Cannot find context with specified id/i.test(
+  /Execution context was destroyed|Cannot find context with specified id|reading 'AppState'|reading "AppState"/i.test(
     error?.message || ""
   );
 

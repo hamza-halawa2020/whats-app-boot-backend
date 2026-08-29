@@ -120,25 +120,8 @@ const sendTextMessage = async (whatsapp, chatId, message) => {
     providerChatId,
   });
 
-  let sent;
-  let mode = "client_send_message";
-
-  try {
-    sent = await whatsapp.sendMessage(providerChatId, message, {
-      sendSeen: false,
-    });
-  } catch (error) {
-    if (!/getMessageModel|reading 'serialize'|reading "serialize"/i.test(error.message || "")) {
-      throw error;
-    }
-
-    trace("message.service.provider_send.fallback", {
-      chatId,
-      error: error.message,
-    }, "warn");
-
-    mode = "direct_store_send_message";
-    sent = await whatsapp.pupPage.evaluate(async (providerChatId, content) => {
+  const sendDirectStoreMessage = async () =>
+    whatsapp.pupPage.evaluate(async (providerChatId, content) => {
       const chatWid = window.Store.WidFactory.createWid(providerChatId);
       const chat = await window.Store.Chat.find(chatWid);
 
@@ -209,6 +192,31 @@ const sendTextMessage = async (whatsapp, chatId, message) => {
         },
       };
     }, providerChatId, message);
+
+  let sent;
+  let mode = "client_send_message";
+
+  if (providerChatId.endsWith("@lid")) {
+    mode = "direct_store_send_message";
+    sent = await sendDirectStoreMessage();
+  } else {
+    try {
+      sent = await whatsapp.sendMessage(providerChatId, message, {
+        sendSeen: false,
+      });
+    } catch (error) {
+      if (!/getMessageModel|reading 'serialize'|reading "serialize"/i.test(error.message || "")) {
+        throw error;
+      }
+
+      trace("message.service.provider_send.fallback", {
+        chatId,
+        error: error.message,
+      }, "warn");
+
+      mode = "direct_store_send_message";
+      sent = await sendDirectStoreMessage();
+    }
   }
 
   const providerMessageId = normalizeProviderMessageId(sent?.id);
