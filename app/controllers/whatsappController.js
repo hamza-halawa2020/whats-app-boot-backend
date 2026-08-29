@@ -4,6 +4,7 @@ const {
   getWhatsAppRuntimeStatus,
   deleteWhatsAppClient,
   deleteLocalAuthSession,
+  isWhatsAppInitializing,
 } = require("../services/whatsappService");
 const WhatsAppSession = require("../models/WhatsAppSession");
 const { sendWhatsAppMessage } = require("../services/messageService");
@@ -126,6 +127,14 @@ exports.restartWhatsAppSession = async (req, res) => {
   trace("whatsapp.restart.request", { userId, phone, sessionId });
 
   try {
+    if (isWhatsAppInitializing(userId, phone)) {
+      trace("whatsapp.restart.busy", { userId, phone, sessionId }, "warn");
+      return res.status(409).json({
+        success: false,
+        error: "WhatsApp session is still starting. Wait until it is ready before restarting.",
+      });
+    }
+
     const oldClient = getWhatsAppClient(userId, phone);
     if (oldClient) {
       await deleteWhatsAppClient(sessionId);
@@ -167,6 +176,14 @@ exports.deleteWhatsAppSession = async (req, res) => {
   trace("whatsapp.delete.request", { userId, phone, sessionId });
 
   try {
+    if (isWhatsAppInitializing(userId, phone)) {
+      trace("whatsapp.delete.busy", { userId, phone, sessionId }, "warn");
+      return res.status(409).json({
+        success: false,
+        error: "WhatsApp session is still starting. Wait until it is ready before deleting.",
+      });
+    }
+
     const oldClient = getWhatsAppClient(userId, phone);
     if (oldClient) {
       await deleteWhatsAppClient(sessionId);
@@ -239,8 +256,8 @@ exports.getSessionStatus = async (req, res) => {
     }
 
     const responseStatus =
-      session?.status === "ready" && !runtime.hasClient
-        ? "disconnected"
+      session?.status === "ready" && !runtimeReady
+        ? runtime.hasClient && !runtime.pageClosed ? "starting" : "disconnected"
         : session?.status || "starting";
     const responseSession = session
       ? { ...session.toJSON(), status: responseStatus }

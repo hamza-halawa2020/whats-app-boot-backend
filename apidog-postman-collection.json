@@ -1,0 +1,576 @@
+{
+  "info": {
+    "_postman_id": "c9f1aa80-1b92-4a84-9de6-whatsapp-backend",
+    "name": "WhatsApp Bot Backend API",
+    "description": "Postman collection for ApiDog import. Set baseUrl, jwtToken, and apiToken collection variables before testing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"phone\": \"+201001112223\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "auth", "signup"] }
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"phone\": \"+201001112223\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "auth", "logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "item": [
+        {
+          "name": "Start WhatsApp",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201001112223\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/whatsapp/start", "host": ["{{baseUrl}}"], "path": ["api", "whatsapp", "start"] }
+          }
+        },
+        {
+          "name": "List Sessions",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/whatsapp/sessions", "host": ["{{baseUrl}}"], "path": ["api", "whatsapp", "sessions"] }
+          }
+        },
+        {
+          "name": "Session Status",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/whatsapp/status?phone=+201001112223",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "whatsapp", "status"],
+              "query": [{ "key": "phone", "value": "+201001112223" }]
+            }
+          }
+        },
+        {
+          "name": "Refresh QR",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201001112223\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/whatsapp/qr/refresh", "host": ["{{baseUrl}}"], "path": ["api", "whatsapp", "qr", "refresh"] }
+          }
+        },
+        {
+          "name": "Restart WhatsApp",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201001112223\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/whatsapp/restart", "host": ["{{baseUrl}}"], "path": ["api", "whatsapp", "restart"] }
+          }
+        },
+        {
+          "name": "Delete WhatsApp",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201001112223\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/whatsapp/delete", "host": ["{{baseUrl}}"], "path": ["api", "whatsapp", "delete"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"senderPhone\": \"+201018759455\",\n  \"phone\": \"+201112223333\",\n  \"message\": \"Test message from ApiDog\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/messages", "host": ["{{baseUrl}}"], "path": ["api", "messages", "messages"] }
+          }
+        },
+        {
+          "name": "Send Message Alias",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"senderPhone\": \"+201018759455\",\n  \"phone\": \"+201112223333\",\n  \"message\": \"Test message from ApiDog\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/messagesRequest", "host": ["{{baseUrl}}"], "path": ["api", "messages", "messagesRequest"] }
+          }
+        },
+        {
+          "name": "Message History",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/messages/history?page=1&limit=20&status=sent",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "messages", "history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "sent" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Broadcast",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"senderPhone\": \"+201018759455\",\n  \"phoneNumbers\": [\"+201112223333\", \"+201144455566\"],\n  \"messagePool\": [\"Hello\", \"Hi there\"],\n  \"batchSize\": 10,\n  \"intervalMs\": 5000,\n  \"repeatCount\": 0\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/broadcast", "host": ["{{baseUrl}}"], "path": ["api", "messages", "broadcast"] }
+          }
+        },
+        {
+          "name": "List Schedules",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/messages/schedules", "host": ["{{baseUrl}}"], "path": ["api", "messages", "schedules"] }
+          }
+        },
+        {
+          "name": "Toggle Schedule",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"scheduleId\": 1,\n  \"action\": \"pause\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/schedules/toggle", "host": ["{{baseUrl}}"], "path": ["api", "messages", "schedules", "toggle"] }
+          }
+        },
+        {
+          "name": "Toggle Schedule Alias",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"scheduleId\": 1,\n  \"action\": \"resume\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/toggle-schedule", "host": ["{{baseUrl}}"], "path": ["api", "messages", "toggle-schedule"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/messages/templates", "host": ["{{baseUrl}}"], "path": ["api", "messages", "templates"] }
+          }
+        },
+        {
+          "name": "Create Template",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Welcome\",\n  \"body\": \"Hello {{name}}\",\n  \"variables\": [\"name\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/templates", "host": ["{{baseUrl}}"], "path": ["api", "messages", "templates"] }
+          }
+        },
+        {
+          "name": "Update Template",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Welcome Updated\",\n  \"body\": \"Hello {{name}}\",\n  \"variables\": [\"name\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/api/messages/templates/1", "host": ["{{baseUrl}}"], "path": ["api", "messages", "templates", "1"] }
+          }
+        },
+        {
+          "name": "Delete Template",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/messages/templates/1", "host": ["{{baseUrl}}"], "path": ["api", "messages", "templates", "1"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clients",
+      "item": [
+        {
+          "name": "List Clients",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/clients?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "clients"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Create Client",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201112223333\",\n  \"name\": \"Client Name\",\n  \"tags\": [\"lead\"],\n  \"segment\": \"sales\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/clients", "host": ["{{baseUrl}}"], "path": ["api", "clients"] }
+          }
+        },
+        {
+          "name": "Update Client",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201112223333\",\n  \"name\": \"Updated Client\",\n  \"tags\": [\"lead\", \"vip\"],\n  \"segment\": \"sales\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/clients/1", "host": ["{{baseUrl}}"], "path": ["api", "clients", "1"] }
+          }
+        },
+        {
+          "name": "Delete Client",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/clients/1", "host": ["{{baseUrl}}"], "path": ["api", "clients", "1"] }
+          }
+        },
+        {
+          "name": "Preview Import",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"rows\": [\n    {\n      \"phone\": \"+201112223333\",\n      \"name\": \"Client Name\",\n      \"tags\": [\"lead\"],\n      \"segment\": \"sales\"\n    }\n  ]\n}" },
+            "url": { "raw": "{{baseUrl}}/api/clients/import/preview", "host": ["{{baseUrl}}"], "path": ["api", "clients", "import", "preview"] }
+          }
+        },
+        {
+          "name": "Import Clients",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"csv\": \"+201112223333,Client Name,lead|vip,sales\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/clients/import", "host": ["{{baseUrl}}"], "path": ["api", "clients", "import"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contacts Aliases",
+      "item": [
+        {
+          "name": "List Contacts",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/contacts", "host": ["{{baseUrl}}"], "path": ["api", "contacts"] }
+          }
+        },
+        {
+          "name": "Create Contact",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201112223333\",\n  \"name\": \"Client Name\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/contacts", "host": ["{{baseUrl}}"], "path": ["api", "contacts"] }
+          }
+        },
+        {
+          "name": "Update Contact",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+201112223333\",\n  \"name\": \"Updated Client\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/contacts/1", "host": ["{{baseUrl}}"], "path": ["api", "contacts", "1"] }
+          }
+        },
+        {
+          "name": "Delete Contact",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/contacts/1", "host": ["{{baseUrl}}"], "path": ["api", "contacts", "1"] }
+          }
+        },
+        {
+          "name": "Preview Contacts Import",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"csv\": \"+201112223333,Client Name,lead|vip,sales\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/contacts/import/preview", "host": ["{{baseUrl}}"], "path": ["api", "contacts", "import", "preview"] }
+          }
+        },
+        {
+          "name": "Import Contacts",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"csv\": \"+201112223333,Client Name,lead|vip,sales\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/contacts/import", "host": ["{{baseUrl}}"], "path": ["api", "contacts", "import"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Groups",
+      "item": [
+        {
+          "name": "List Groups",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/groups", "host": ["{{baseUrl}}"], "path": ["api", "groups"] }
+          }
+        },
+        {
+          "name": "Group Participants",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/groups/123456789@g.us/participants", "host": ["{{baseUrl}}"], "path": ["api", "groups", "123456789@g.us", "participants"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tokens",
+      "item": [
+        {
+          "name": "Generate API Token",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"senderPhone\": \"+201018759455\",\n  \"name\": \"Production\",\n  \"scopes\": [\"messages:send\"],\n  \"webhookUrl\": null,\n  \"expiresAt\": null\n}" },
+            "url": { "raw": "{{baseUrl}}/api/tokens/generate", "host": ["{{baseUrl}}"], "path": ["api", "tokens", "generate"] }
+          }
+        },
+        {
+          "name": "List API Tokens",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/tokens", "host": ["{{baseUrl}}"], "path": ["api", "tokens"] }
+          }
+        },
+        {
+          "name": "Update API Token",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Production Updated\",\n  \"scopes\": [\"messages:send\"],\n  \"webhookUrl\": null,\n  \"expiresAt\": null\n}" },
+            "url": { "raw": "{{baseUrl}}/api/tokens/1", "host": ["{{baseUrl}}"], "path": ["api", "tokens", "1"] }
+          }
+        },
+        {
+          "name": "Rotate API Token",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/tokens/1/rotate", "host": ["{{baseUrl}}"], "path": ["api", "tokens", "1", "rotate"] }
+          }
+        },
+        {
+          "name": "Revoke API Token",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"tokenId\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/api/tokens/revoke", "host": ["{{baseUrl}}"], "path": ["api", "tokens", "revoke"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "External",
+      "item": [
+        {
+          "name": "External Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Token", "value": "{{apiToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"senderPhone\": \"+201018759455\",\n  \"phone\": \"+201112223333\",\n  \"message\": \"External test from ApiDog\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/external/messages/send", "host": ["{{baseUrl}}"], "path": ["api", "external", "messages", "send"] }
+          }
+        },
+        {
+          "name": "External Bulk Messages",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Token", "value": "{{apiToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"senderPhone\": \"+201018759455\",\n  \"phoneNumbers\": [\"+201112223333\"],\n  \"messagePool\": [\"Hello from external bulk\"],\n  \"batchSize\": 10,\n  \"intervalMs\": 5000,\n  \"repeatCount\": 0\n}" },
+            "url": { "raw": "{{baseUrl}}/api/external/messages/bulk", "host": ["{{baseUrl}}"], "path": ["api", "external", "messages", "bulk"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Operations",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "Usage",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/usage", "host": ["{{baseUrl}}"], "path": ["usage"] }
+          }
+        },
+        {
+          "name": "Rate Limits",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/rate-limits", "host": ["{{baseUrl}}"], "path": ["rate-limits"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Dashboard",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/dashboard", "host": ["{{baseUrl}}"], "path": ["admin", "dashboard"] }
+          }
+        },
+        {
+          "name": "Audit Logs",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-logs?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "audit-logs"],
+              "query": [{ "key": "limit", "value": "50" }]
+            }
+          }
+        },
+        {
+          "name": "Admin Sessions",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/sessions?limit=100",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "sessions"],
+              "query": [{ "key": "limit", "value": "100" }]
+            }
+          }
+        },
+        {
+          "name": "Disconnect Session",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwtToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/sessions/1/disconnect", "host": ["{{baseUrl}}"], "path": ["admin", "sessions", "1", "disconnect"] }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "jwtToken", "value": "", "type": "string" },
+    { "key": "apiToken", "value": "", "type": "string" }
+  ]
+}

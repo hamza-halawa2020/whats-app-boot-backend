@@ -112,6 +112,11 @@ const isWhatsAppClientUsable = (client) =>
 const isPuppeteerTargetClosedError = (error) =>
   /Session closed|Target closed|Protocol error/i.test(error?.message || "");
 
+const isPuppeteerNavigationError = (error) =>
+  /Execution context was destroyed|Cannot find context with specified id/i.test(
+    error?.message || ""
+  );
+
 const withTimeout = (promise, timeoutMs, timeoutValue) =>
   Promise.race([
     promise,
@@ -140,6 +145,18 @@ const normalizeSerializedWid = (value) => {
   }
 
   return null;
+};
+
+const isLikelyUserWid = (serializedWid) => {
+  if (!serializedWid || typeof serializedWid !== "string") {
+    return false;
+  }
+
+  const [user, server = "c.us"] = serializedWid.split("@");
+  return (
+    ["c.us", "s.whatsapp.net"].includes(server) &&
+    /^\d{6,15}$/.test(user)
+  );
 };
 
 const forceCloseBrowser = async (sessionId, client) => {
@@ -230,6 +247,173 @@ const hasSendMessageHelper = async (client) => {
   }
 };
 
+const patchMsgKeyWidInputs = async (client, sessionId) => {
+  if (!isWhatsAppClientUsable(client)) {
+    return { patched: false, usable: false };
+  }
+
+  try {
+    const result = await client.pupPage.evaluate(() => {
+      if (!window.Store?.MsgKey || !window.Store?.WidFactory?.createWid) {
+        return {
+          patched: false,
+          reason: "missing_msgkey_or_wid_factory",
+          hasMsgKey: Boolean(window.Store?.MsgKey),
+          hasWidFactory: Boolean(window.Store?.WidFactory?.createWid),
+        };
+      }
+
+      if (window.WWebJS?.msgKeyWidPatchApplied) {
+        return { patched: true, alreadyApplied: true };
+      }
+
+      const OriginalMsgKey = window.Store.MsgKey;
+      const isValidUserSerialized = (serialized) => {
+        if (!serialized || typeof serialized !== "string") {
+          return false;
+        }
+
+        const [user, server = "c.us"] = serialized.split("@");
+        return (
+          ["c.us", "s.whatsapp.net"].includes(server) &&
+          /^\d{6,15}$/.test(user)
+        );
+      };
+      const getSerialized = (value) => {
+        if (!value) {
+          return null;
+        }
+
+        if (typeof value === "string") {
+          return value;
+        }
+
+        if (value._serialized) {
+          return value._serialized;
+        }
+
+        if (value.user && value.server) {
+          return `${value.user}@${value.server}`;
+        }
+
+        if (value.user) {
+          return `${value.user}@c.us`;
+        }
+
+        return null;
+      };
+      const toWid = (value) => {
+        if (!value) {
+          return value;
+        }
+
+        let serialized = getSerialized(value);
+
+        if (!serialized) {
+          return value;
+        }
+
+        try {
+          return window.Store.WidFactory.createWid(serialized);
+        } catch (error) {
+          return value;
+        }
+      };
+
+      const PatchedMsgKey = function patchedMsgKey(input) {
+        if (input && typeof input === "object") {
+          const fallbackMeUser = toWid(window.WWebJS?.meUserWid);
+          const fromWid = toWid(input.from);
+          const toWidValue = toWid(input.to);
+          const participantWid = toWid(input.participant);
+          const fromSerialized = getSerialized(fromWid);
+
+          input = {
+            ...input,
+            from:
+              !isValidUserSerialized(fromSerialized) && fallbackMeUser
+                ? fallbackMeUser
+                : fromWid,
+            to: toWidValue,
+            participant:
+              input.participant &&
+              !isValidUserSerialized(getSerialized(participantWid)) &&
+              fallbackMeUser
+                ? fallbackMeUser
+                : participantWid,
+          };
+        }
+
+        try {
+          return new OriginalMsgKey(input);
+        } catch (error) {
+          const summarizeWid = (value) =>
+            value
+              ? {
+                  serialized: value._serialized || null,
+                  user: value.user || null,
+                  server: value.server || null,
+                  type: value.constructor?.name || typeof value,
+                  hasIsUser: typeof value.isUser === "function",
+                  hasIsGroup: typeof value.isGroup === "function",
+                }
+              : null;
+          error.message = `${error.message}; MsgKey input=${JSON.stringify({
+            from: summarizeWid(input?.from),
+            to: summarizeWid(input?.to),
+            participant: summarizeWid(input?.participant),
+            idType: input?.id?.constructor?.name || typeof input?.id,
+            selfDir: input?.selfDir || null,
+          })}`;
+          throw error;
+        }
+      };
+
+      Object.setPrototypeOf(PatchedMsgKey, OriginalMsgKey);
+      PatchedMsgKey.prototype = OriginalMsgKey.prototype;
+
+      for (const propertyName of Object.getOwnPropertyNames(OriginalMsgKey)) {
+        if (["length", "name", "prototype"].includes(propertyName)) {
+          continue;
+        }
+
+        try {
+          Object.defineProperty(
+            PatchedMsgKey,
+            propertyName,
+            Object.getOwnPropertyDescriptor(OriginalMsgKey, propertyName)
+          );
+        } catch (error) {
+          // Some bundled properties can be non-configurable; the prototype link covers them.
+        }
+      }
+
+      window.WWebJS = window.WWebJS || {};
+      window.WWebJS.originalMsgKey = OriginalMsgKey;
+      window.WWebJS.msgKeyWidPatchApplied = true;
+      window.Store.MsgKey = PatchedMsgKey;
+
+      return {
+        patched: true,
+        originalType: OriginalMsgKey?.name || OriginalMsgKey?.constructor?.name || null,
+      };
+    });
+
+    trace("whatsapp.msg_key_wid_patch", {
+      sessionId,
+      ...result,
+    }, result.patched ? "info" : "warn");
+
+    return result;
+  } catch (error) {
+    trace("whatsapp.msg_key_wid_patch.error", {
+      sessionId,
+      error: error.message,
+    }, "warn");
+    return { patched: false, error: error.message };
+  }
+};
+
 const patchWhatsAppUserHelpers = async (client, fallbackPhone = null) => {
   if (!isWhatsAppClientUsable(client)) {
     return false;
@@ -256,16 +440,46 @@ const patchWhatsAppUserHelpers = async (client, fallbackPhone = null) => {
           return null;
         }
 
-        if (value._serialized || (value.user && value.server)) {
+        if (value._serialized && typeof value.isUser === "function") {
           return value;
         }
 
+        let serialized = null;
         if (typeof value === "string") {
           const [user, server = "c.us"] = value.split("@");
           if (!user) {
             return null;
           }
+          serialized = `${user}@${server}`;
+        } else if (value._serialized) {
+          serialized = value._serialized;
+        } else if (value.user && value.server) {
+          serialized = `${value.user}@${value.server}`;
+        } else if (value.user) {
+          serialized = `${value.user}@c.us`;
+        }
 
+        if (!serialized) {
+          return null;
+        }
+        const [serializedUser, serializedServer = "c.us"] = serialized.split("@");
+        if (
+          (serializedServer === "c.us" || serializedServer === "s.whatsapp.net") &&
+          !/^\d{6,15}$/.test(serializedUser)
+        ) {
+          return null;
+        }
+
+        try {
+          if (window.Store?.WidFactory?.createWid) {
+            return window.Store.WidFactory.createWid(serialized);
+          }
+        } catch (error) {
+          // Fall back to a plain WID-shaped object if WhatsApp's factory changes.
+        }
+
+        const [user, server = "c.us"] = serialized.split("@");
+        if (user) {
           return {
             user,
             server,
@@ -326,9 +540,11 @@ const patchWhatsAppUserHelpers = async (client, fallbackPhone = null) => {
 
       if (fallbackWid) {
         window.WWebJS = window.WWebJS || {};
-        window.WWebJS.meUserWid = fallbackWid;
+        const fallbackWidObject = toWid(fallbackWid) || toWid(fallbackChatId);
+        window.WWebJS.meUserWid = fallbackWidObject;
 
-        const getFallbackWid = () => toWid(fallbackWid);
+        const getFallbackWid = () =>
+          fallbackWidObject || toWid(fallbackWid) || toWid(fallbackChatId);
 
         try {
           Object.defineProperty(window.Store.User, "getMaybeMeUser", {
@@ -351,10 +567,12 @@ const patchWhatsAppUserHelpers = async (client, fallbackPhone = null) => {
         }
 
         return {
-          patched: true,
+          patched: Boolean(fallbackWidObject),
           source: "client.info.wid",
           hasGetMaybeMeUser: true,
           hasGetMeUser: true,
+          meUserWidType: fallbackWidObject?.constructor?.name || typeof fallbackWidObject,
+          meUserWidSerialized: fallbackWidObject?._serialized || null,
         };
       }
 
@@ -398,7 +616,7 @@ const patchWhatsAppUserHelpers = async (client, fallbackPhone = null) => {
   }
 };
 
-const injectMeUserWid = async (client) => {
+const injectMeUserWid = async (client, fallbackPhone = null) => {
   if (!isWhatsAppClientUsable(client)) {
     return { injected: false, usable: false };
   }
@@ -407,6 +625,12 @@ const injectMeUserWid = async (client) => {
     normalizeSerializedWid(client.info?.wid) ||
     normalizeSerializedWid(client.info?.me) ||
     null;
+  if (fallbackWid && !isLikelyUserWid(fallbackWid)) {
+    trace("whatsapp.inject.me_user_wid.invalid_client_info", {
+      fallbackWid,
+    }, "warn");
+    fallbackWid = null;
+  }
 
   if (!fallbackWid) {
     fallbackWid = await withTimeout(
@@ -449,20 +673,124 @@ const injectMeUserWid = async (client) => {
       null
     );
   }
+  if (fallbackWid && !isLikelyUserWid(fallbackWid)) {
+    trace("whatsapp.inject.me_user_wid.invalid_page_source", {
+      fallbackWid,
+    }, "warn");
+    fallbackWid = null;
+  }
+
+  if (!fallbackWid && fallbackPhone) {
+    fallbackWid = `${fallbackPhone.toString().replace(/\D/g, "")}@c.us`;
+  }
 
   if (!fallbackWid) {
     return { injected: false, hasFallbackWid: false };
   }
 
-  await client.pupPage.evaluate((meUserWid) => {
+      const injectionInfo = await client.pupPage.evaluate((meUserWid) => {
+    const toWid = (value) => {
+      if (!value) {
+        return null;
+      }
+
+      if (value._serialized && typeof value.isUser === "function") {
+        return value;
+      }
+
+      let serialized = null;
+      if (typeof value === "string") {
+        const [user, server = "c.us"] = value.split("@");
+        if (!user) {
+          return null;
+        }
+        serialized = `${user}@${server}`;
+      } else if (value._serialized) {
+        serialized = value._serialized;
+      } else if (value.user && value.server) {
+        serialized = `${value.user}@${value.server}`;
+      } else if (value.user) {
+        serialized = `${value.user}@c.us`;
+      }
+
+      if (!serialized) {
+        return null;
+      }
+      const [serializedUser, serializedServer = "c.us"] = serialized.split("@");
+      if (
+        (serializedServer === "c.us" || serializedServer === "s.whatsapp.net") &&
+        !/^\d{6,15}$/.test(serializedUser)
+      ) {
+        return null;
+      }
+
+      try {
+        if (window.Store?.WidFactory?.createWid) {
+          return window.Store.WidFactory.createWid(serialized);
+        }
+      } catch (error) {
+        // Fall back below if WhatsApp's factory is unavailable.
+      }
+
+      const [user, server = "c.us"] = serialized.split("@");
+      if (!user) {
+        return null;
+      }
+
+      return {
+        user,
+        server,
+        _serialized: `${user}@${server}`,
+        isGroup: () => server === "g.us",
+        isUser: () => server === "c.us" || server === "s.whatsapp.net",
+      };
+    };
+
+    const wid = toWid(meUserWid);
     window.WWebJS = window.WWebJS || {};
-    window.WWebJS.meUserWid = meUserWid;
+    window.WWebJS.meUserWid = wid;
+
+    if (wid && window.Store) {
+      if (!window.Store.User || Object.isFrozen(window.Store.User)) {
+        window.Store.User = { ...(window.Store.User || {}) };
+      }
+
+      const getWid = () => wid;
+      try {
+        Object.defineProperty(window.Store.User, "getMeUser", {
+          configurable: true,
+          writable: true,
+          value: getWid,
+        });
+      } catch (error) {
+        window.Store.User.getMeUser = getWid;
+      }
+
+      try {
+        Object.defineProperty(window.Store.User, "getMaybeMeUser", {
+          configurable: true,
+          writable: true,
+          value: getWid,
+        });
+      } catch (error) {
+        window.Store.User.getMaybeMeUser = getWid;
+      }
+    }
+
+    return {
+      injected: Boolean(wid),
+      widType: wid?.constructor?.name || typeof wid,
+      serialized: wid?._serialized || null,
+      hasIsUser: typeof wid?.isUser === "function",
+      patchedStoreUser: Boolean(wid && window.Store?.User),
+    };
   }, fallbackWid);
 
   return {
-    injected: true,
+    injected: injectionInfo.injected,
     source: "client.info.wid",
     fallbackWidServer: fallbackWid.split("@")[1] || null,
+    ...injectionInfo,
   };
 };
 
@@ -482,14 +810,23 @@ const ensureMessagingInjected = async (client, sessionId, fallbackPhone = null) 
   }
 
   try {
-    const pageState = await client.pupPage.evaluate(() => ({
-      debugVersion: window.Debug?.VERSION || null,
-      authState: window.AuthStore?.AppState?.state || null,
-      hasRequire: typeof window.require === "function",
-      hasStore: typeof window.Store !== "undefined",
-      hasWWebJS: typeof window.WWebJS !== "undefined",
-      hasSendMessage: typeof window.WWebJS?.sendMessage === "function",
-    }));
+    const pageState = await withTimeout(
+      client.pupPage.evaluate(() => ({
+        debugVersion: window.Debug?.VERSION || null,
+        authState: window.AuthStore?.AppState?.state || null,
+        hasRequire: typeof window.require === "function",
+        hasStore: typeof window.Store !== "undefined",
+        hasWWebJS: typeof window.WWebJS !== "undefined",
+        hasSendMessage: typeof window.WWebJS?.sendMessage === "function",
+      })),
+      1500,
+      null
+    );
+
+    if (!pageState) {
+      trace("whatsapp.inject.page_state.timeout", { sessionId }, "warn");
+      return false;
+    }
 
     trace("whatsapp.inject.page_state", {
       sessionId,
@@ -498,7 +835,7 @@ const ensureMessagingInjected = async (client, sessionId, fallbackPhone = null) 
 
     if (pageState.hasSendMessage && pageState.hasStore) {
       const meUserInjection = await withTimeout(
-        injectMeUserWid(client),
+        injectMeUserWid(client, fallbackPhone),
         1000,
         { injected: false, timeout: true }
       );
@@ -514,13 +851,19 @@ const ensureMessagingInjected = async (client, sessionId, fallbackPhone = null) 
             1500,
             { patched: false, timeout: true }
           );
+      const msgKeyPatch = await withTimeout(
+        patchMsgKeyWidInputs(client, sessionId),
+        1500,
+        { patched: false, timeout: true }
+      );
       trace("whatsapp.inject.already_ready", {
         sessionId,
         authState: pageState.authState,
         meUserInjection,
         helperPatch,
+        msgKeyPatch,
       });
-      return helperPatch.hasGetMaybeMeUser || helperPatch.patched;
+      return (helperPatch.hasGetMaybeMeUser || helperPatch.patched) && msgKeyPatch.patched;
     }
 
     if (pageState.authState !== "CONNECTED" || !pageState.hasRequire) {
@@ -544,10 +887,33 @@ const ensureMessagingInjected = async (client, sessionId, fallbackPhone = null) 
     trace("whatsapp.inject.load_utils.before", { sessionId });
     await client.pupPage.evaluate(LoadUtils);
     trace("whatsapp.inject.load_utils.after", { sessionId });
-    const helperPatch = await patchWhatsAppUserHelpers(client, fallbackPhone);
+    const meUserInjection = await withTimeout(
+      injectMeUserWid(client, fallbackPhone),
+      1500,
+      { injected: false, timeout: true }
+    );
+    const msgKeyPatch = await withTimeout(
+      patchMsgKeyWidInputs(client, sessionId),
+      1500,
+      { patched: false, timeout: true }
+    );
+    const helperPatch = meUserInjection.injected
+      ? {
+          patched: true,
+          source: meUserInjection.source,
+          hasGetMaybeMeUser: true,
+          hasGetMeUser: true,
+        }
+      : await withTimeout(
+          patchWhatsAppUserHelpers(client, fallbackPhone),
+          1500,
+          { patched: false, timeout: true }
+        );
     trace("whatsapp.inject.helper_patch", {
       sessionId,
+      meUserInjection,
       helperPatch,
+      msgKeyPatch,
     });
     if (helperPatch.closed) {
       await cleanupWhatsAppClient(sessionId, client);
@@ -561,54 +927,105 @@ const ensureMessagingInjected = async (client, sessionId, fallbackPhone = null) 
 
     if (!client.info) {
       trace("whatsapp.inject.client_info.before", { sessionId });
-      const info = await client.pupPage.evaluate(() => {
-        const getCurrentWid = () => {
-          const candidates = [
-            window.Store?.User?.getMeUser,
-            window.Store?.User?.getMaybeMeUser,
-          ];
+      const info = await withTimeout(
+        client.pupPage.evaluate(() => {
+          const toWid = (value) => {
+            if (!value) {
+              return null;
+            }
 
-          for (const getWid of candidates) {
-            if (typeof getWid === "function") {
-              try {
-                const wid = getWid();
-                if (wid) {
-                  return wid;
+            if (value._serialized && typeof value.isUser === "function") {
+              return value;
+            }
+
+            let serialized = null;
+            if (typeof value === "string") {
+              serialized = value;
+            } else if (value._serialized) {
+              serialized = value._serialized;
+            } else if (value.user && value.server) {
+              serialized = `${value.user}@${value.server}`;
+            } else if (value.user) {
+              serialized = `${value.user}@c.us`;
+            }
+
+            if (!serialized) {
+              return null;
+            }
+            const [serializedUser, serializedServer = "c.us"] = serialized.split("@");
+            if (
+              (serializedServer === "c.us" || serializedServer === "s.whatsapp.net") &&
+              !/^\d{6,15}$/.test(serializedUser)
+            ) {
+              return null;
+            }
+
+            try {
+              return window.Store?.WidFactory?.createWid
+                ? window.Store.WidFactory.createWid(serialized)
+                : value;
+            } catch (error) {
+              return value;
+            }
+          };
+
+          const getCurrentWid = () => {
+            const candidates = [
+              window.Store?.User?.getMeUser,
+              window.Store?.User?.getMaybeMeUser,
+            ];
+
+            for (const getWid of candidates) {
+              if (typeof getWid === "function") {
+                try {
+                  const wid = toWid(getWid());
+                  if (wid) {
+                    return wid;
+                  }
+                } catch (error) {
+                  // WhatsApp Web changes these private helpers often; try the next source.
                 }
-              } catch (error) {
-                // WhatsApp Web changes these private helpers often; try the next source.
               }
             }
-          }
 
-          return (
-            window.Store?.Conn?.wid ||
-            window.Store?.Conn?.me ||
-            window.Store?.Conn?.id ||
-            window.AuthStore?.Conn?.wid ||
-            null
-          );
-        };
+            return (
+              toWid(window.Store?.Conn?.wid) ||
+              toWid(window.Store?.Conn?.me) ||
+              toWid(window.Store?.Conn?.id) ||
+              toWid(window.AuthStore?.Conn?.wid) ||
+              null
+            );
+          };
 
-        return {
-          ...window.Store.Conn.serialize(),
-          wid: getCurrentWid(),
-        };
-      });
-      client.info = new ClientInfo(client, info);
-      client.interface = new InterfaceController(client);
+          return {
+            ...window.Store.Conn.serialize(),
+            wid: getCurrentWid(),
+          };
+        }),
+        1500,
+        null
+      );
+      if (info) {
+        client.info = new ClientInfo(client, info);
+        client.interface = new InterfaceController(client);
+      }
       trace("whatsapp.inject.client_info.after", {
         sessionId,
+        hasInfo: Boolean(info),
         hasWid: Boolean(info?.wid),
       });
     }
 
-    const injected = await hasSendMessageHelper(client);
+    const injected = await withTimeout(
+      hasSendMessageHelper(client),
+      1500,
+      false
+    );
     if (injected) {
       logger.info(`WhatsApp messaging helpers injected for ${sessionId}`);
     }
 
-    return injected;
+    return injected && msgKeyPatch.patched;
   } catch (error) {
     if (isPuppeteerTargetClosedError(error)) {
       trace("whatsapp.inject.target_closed", {
@@ -641,14 +1058,14 @@ const isWhatsAppClientReady = async (client, sessionId, fallbackPhone = null) =>
     return false;
   }
 
-  const state = await getClientState(client);
+  const state = await withTimeout(getClientState(client), 1500, null);
   trace("whatsapp.ready_check.state", {
     sessionId,
     hasMessaging,
     state,
     hasInfo: Boolean(client?.info),
   });
-  return Boolean(client?.info) || state === "CONNECTED";
+  return state === "CONNECTED" || Boolean(client?.info);
 };
 
 const prepareWhatsAppForMessage = async (client, sessionId, fallbackPhone = null) => {
@@ -834,19 +1251,52 @@ const initializeWhatsApp = async (userId, phone) => {
       phone,
       sessionId,
     });
-    const initializationPromise = withTimeout(
-      whatsapp.initialize().then(() => whatsapp),
-      45000,
-      null
-    ).then((result) => {
-      if (!result) {
-        const error = new Error("WhatsApp initialization timed out before QR or ready state.");
-        error.statusCode = 400;
-        throw error;
+    const initializeWithRetry = async () => {
+      let lastError;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          trace("whatsapp.initialize.attempt", {
+            userId,
+            phone,
+            sessionId,
+            attempt,
+          });
+
+          const result = await withTimeout(
+            whatsapp.initialize().then(() => whatsapp),
+            45000,
+            null
+          );
+
+          if (!result) {
+            const error = new Error("WhatsApp initialization timed out before QR or ready state.");
+            error.statusCode = 400;
+            throw error;
+          }
+
+          return result;
+        } catch (error) {
+          lastError = error;
+          if (!isPuppeteerNavigationError(error) || attempt === 2) {
+            throw error;
+          }
+
+          trace("whatsapp.initialize.retry_navigation", {
+            userId,
+            phone,
+            sessionId,
+            attempt,
+            error: error.message,
+          }, "warn");
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
       }
 
-      return result;
-    });
+      throw lastError;
+    };
+
+    const initializationPromise = initializeWithRetry();
     initializingClients.set(sessionId, initializationPromise);
     await initializationPromise;
     trace("whatsapp.initialize.after_initialize", {
@@ -909,6 +1359,9 @@ const initializeWhatsApp = async (userId, phone) => {
 };
 
 const getWhatsAppClient = (userId, phone) => clients.get(getSessionId(userId, phone));
+
+const isWhatsAppInitializing = (userId, phone) =>
+  initializingClients.has(getSessionId(userId, phone));
 
 const getWhatsAppRuntimeStatus = async (userId, phone) => {
   const sessionId = getSessionId(userId, phone);
@@ -1142,4 +1595,5 @@ module.exports = {
   deleteWhatsAppClient,
   deleteLocalAuthSession,
   getSessionId,
+  isWhatsAppInitializing,
 };

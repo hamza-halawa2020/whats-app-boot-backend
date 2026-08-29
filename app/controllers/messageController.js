@@ -34,11 +34,13 @@ const notifyWebhook = async (apiToken, payload) => {
 };
 
 exports.sendMessage = async (req, res) => {
-  let { phone, message } = req.body; 
+  let { phone, message, senderPhone, fromPhone, sessionPhone } = req.body;
+  const requestedSenderPhone = senderPhone || fromPhone || sessionPhone || null;
 
   trace("message.controller_send.request", {
     userId: req.user?.id || null,
-    fromPhone: req.user?.phone || null,
+    accountPhone: req.user?.phone || null,
+    requestedSenderPhone,
     toPhone: phone || null,
     messageLength: message?.length || 0,
   });
@@ -55,12 +57,14 @@ exports.sendMessage = async (req, res) => {
       user: req.user,
       phone,
       message,
+      senderPhone: requestedSenderPhone,
     });
 
     return res.status(200).json({
       success: true,
       message: "Message sent successfully",
       phone: result.phone,
+      senderPhone: result.senderPhone,
     });
   } catch (error) {
     trace(
@@ -68,6 +72,7 @@ exports.sendMessage = async (req, res) => {
       {
         userId: req.user?.id || null,
         toPhone: phone || null,
+        requestedSenderPhone,
         error: error.message,
         statusCode: error.statusCode || 500,
       },
@@ -86,30 +91,38 @@ exports.generateApiToken = async (req, res) => {
     scopes = ["messages:send"],
     webhookUrl = null,
     expiresAt = null,
+    phone = null,
+    senderPhone = null,
+    fromPhone = null,
+    sessionPhone = null,
   } = req.body;
+  const tokenPhone = normalizePhoneNumber(
+    phone || senderPhone || fromPhone || sessionPhone || userPhone
+  );
 
   try {
     trace("tokens.generate.request", {
       requestId: req.requestId || null,
       userId,
       userPhone,
+      tokenPhone,
       name,
       scopes,
       hasWebhookUrl: Boolean(webhookUrl),
       expiresAt,
     });
     // Check if user has a WhatsApp client ready
-    await waitForWhatsAppReady(userId, userPhone);
+    await waitForWhatsAppReady(userId, tokenPhone);
     trace("tokens.generate.whatsapp_ready", {
       requestId: req.requestId || null,
       userId,
-      userPhone,
+      tokenPhone,
     });
 
     const rawToken = ApiToken.generateRawToken();
     const apiToken = ApiToken.build({
       userId,
-      phone: userPhone,
+      phone: tokenPhone,
       token: ApiToken.hashToken(rawToken),
       name,
       scopes,
@@ -141,12 +154,14 @@ exports.generateApiToken = async (req, res) => {
 };
 
 exports.sendMessageWithApiToken = async (req, res) => {
-  let { phone, message } = req.body;
+  let { phone, message, senderPhone, fromPhone, sessionPhone } = req.body;
+  const requestedSenderPhone = senderPhone || fromPhone || sessionPhone || req.user?.phone || null;
   trace("message.external_send.request", {
     requestId: req.requestId || null,
     userId: req.user?.id || null,
     apiTokenId: req.apiToken?.id || null,
-    fromPhone: req.user?.phone || null,
+    accountPhone: req.user?.phone || null,
+    requestedSenderPhone,
     toPhone: phone || null,
     messageLength: message?.length || 0,
   });
@@ -168,12 +183,14 @@ exports.sendMessageWithApiToken = async (req, res) => {
       user: req.user,
       phone,
       message,
+      senderPhone: requestedSenderPhone,
     });
     trace("message.external_send.sent", {
       requestId: req.requestId || null,
       userId: req.user?.id || null,
       apiTokenId: req.apiToken?.id || null,
       phone: result.phone,
+      senderPhone: result.senderPhone,
       messageId: result.messageId,
       providerMessageId: result.providerMessageId,
       status: result.status,
@@ -196,6 +213,7 @@ exports.sendMessageWithApiToken = async (req, res) => {
       success: true,
       message: "Message sent successfully",
       phone: result.phone,
+      senderPhone: result.senderPhone,
       messageId: result.messageId,
       status: result.status,
     });
@@ -210,6 +228,7 @@ exports.sendMessageWithApiToken = async (req, res) => {
       userId: req.user?.id || null,
       apiTokenId: req.apiToken?.id || null,
       phone,
+      requestedSenderPhone,
       error: error.message,
       statusCode: error.statusCode || 500,
     }, error.statusCode && error.statusCode < 500 ? "warn" : "error");
@@ -439,6 +458,9 @@ exports.revokeApiToken = async (req, res) => {
 
 exports.sendRandomMessages = async (req, res) => {
   const {
+    senderPhone,
+    fromPhone,
+    sessionPhone,
     messagePool,
     phoneNumbers, // Array of specific phone numbers (optional, replaces clientIds)
     batchSize = 10,
@@ -447,11 +469,12 @@ exports.sendRandomMessages = async (req, res) => {
     repeatCount = 0, // Number of times to repeat (0 for indefinite)
   } = req.body;
   const userId = req.user.id;
-  const userPhone = req.user.phone;
+  const userPhone = normalizePhoneNumber(senderPhone || fromPhone || sessionPhone || req.user.phone);
   trace("message.broadcast.request", {
     requestId: req.requestId || null,
     userId,
-    userPhone,
+    accountPhone: req.user.phone,
+    senderPhone: userPhone,
     phoneNumbersCount: Array.isArray(phoneNumbers) ? phoneNumbers.length : 0,
     messagePoolCount: Array.isArray(messagePool) ? messagePool.length : 0,
     batchSize,

@@ -1,0 +1,777 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "WhatsApp Bot Backend API",
+    "version": "1.0.0",
+    "description": "Import this file into ApiDog to test the WhatsApp bot backend endpoints."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    { "name": "Auth" },
+    { "name": "WhatsApp" },
+    { "name": "Messages" },
+    { "name": "Templates" },
+    { "name": "Clients" },
+    { "name": "Groups" },
+    { "name": "Tokens" },
+    { "name": "External" },
+    { "name": "Operations" },
+    { "name": "Admin" }
+  ],
+  "paths": {
+    "/api/auth/signup": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sign up",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SignupRequest" },
+              "example": {
+                "name": "Test User",
+                "email": "test@example.com",
+                "password": "password123",
+                "phone": "+201001112223"
+              }
+            }
+          }
+        },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register alias for signup",
+        "requestBody": { "$ref": "#/components/requestBodies/Signup" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" },
+              "example": {
+                "email": "test@example.com",
+                "password": "password123"
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Logout",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/whatsapp/start": {
+      "post": {
+        "tags": ["WhatsApp"],
+        "summary": "Start WhatsApp session and return QR/status",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/OptionalPhone" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/whatsapp/sessions": {
+      "get": {
+        "tags": ["WhatsApp"],
+        "summary": "List WhatsApp sessions",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/whatsapp/status": {
+      "get": {
+        "tags": ["WhatsApp"],
+        "summary": "Get WhatsApp session status",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/PhoneQuery" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/whatsapp/qr/refresh": {
+      "post": {
+        "tags": ["WhatsApp"],
+        "summary": "Refresh QR by restarting the session",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/OptionalPhone" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/whatsapp/restart": {
+      "post": {
+        "tags": ["WhatsApp"],
+        "summary": "Restart WhatsApp session",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/OptionalPhone" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/whatsapp/delete": {
+      "post": {
+        "tags": ["WhatsApp"],
+        "summary": "Delete WhatsApp session",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/OptionalPhone" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/messages": {
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Send one message",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/SendMessage" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/messagesRequest": {
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Send one message alias",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/SendMessage" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/history": {
+      "get": {
+        "tags": ["Messages"],
+        "summary": "Get message history",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "example": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "example": 20 } },
+          { "$ref": "#/components/parameters/PhoneQuery" },
+          { "name": "status", "in": "query", "schema": { "type": "string", "example": "sent" } },
+          { "name": "search", "in": "query", "schema": { "type": "string", "example": "hello" } }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/messages/broadcast": {
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Send or schedule a batch of random messages",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/Broadcast" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/schedules": {
+      "get": {
+        "tags": ["Messages"],
+        "summary": "List schedules",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/messages/schedules/toggle": {
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Pause or resume schedule",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/ToggleSchedule" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/toggle-schedule": {
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Pause or resume schedule alias",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/ToggleSchedule" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/templates": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "List templates",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Templates"],
+        "summary": "Create template",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/Template" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/messages/templates/{id}": {
+      "put": {
+        "tags": ["Templates"],
+        "summary": "Update template",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Template" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": {
+        "tags": ["Templates"],
+        "summary": "Delete template",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/clients": {
+      "get": {
+        "tags": ["Clients"],
+        "summary": "List clients",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "example": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "example": 20 } },
+          { "name": "segment", "in": "query", "schema": { "type": "string", "example": "sales" } }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Create client",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/Client" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/clients/{id}": {
+      "put": {
+        "tags": ["Clients"],
+        "summary": "Update client",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Client" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": {
+        "tags": ["Clients"],
+        "summary": "Delete client",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/clients/import/preview": {
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Preview clients import",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/ImportClients" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/clients/import": {
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Import clients",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/ImportClients" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/contacts": {
+      "get": {
+        "tags": ["Clients"],
+        "summary": "List clients alias",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Create client alias",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/Client" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/contacts/{id}": {
+      "put": {
+        "tags": ["Clients"],
+        "summary": "Update client alias",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Client" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": {
+        "tags": ["Clients"],
+        "summary": "Delete client alias",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/contacts/import/preview": {
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Preview clients import alias",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/ImportClients" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/contacts/import": {
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Import clients alias",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/ImportClients" },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/groups": {
+      "get": {
+        "tags": ["Groups"],
+        "summary": "List WhatsApp groups",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/groups/{groupId}/participants": {
+      "get": {
+        "tags": ["Groups"],
+        "summary": "Get group participants and save them as clients",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "groupId", "in": "path", "required": true, "schema": { "type": "string", "example": "123456789@g.us" } }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/tokens/generate": {
+      "post": {
+        "tags": ["Tokens"],
+        "summary": "Generate API token",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/GenerateToken" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/tokens": {
+      "get": {
+        "tags": ["Tokens"],
+        "summary": "List API tokens",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/tokens/{tokenId}": {
+      "put": {
+        "tags": ["Tokens"],
+        "summary": "Update API token",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/TokenIdPath" }],
+        "requestBody": { "$ref": "#/components/requestBodies/GenerateToken" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/tokens/{tokenId}/rotate": {
+      "post": {
+        "tags": ["Tokens"],
+        "summary": "Rotate API token",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/TokenIdPath" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/tokens/revoke": {
+      "post": {
+        "tags": ["Tokens"],
+        "summary": "Revoke API token",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["tokenId"],
+                "properties": { "tokenId": { "type": "integer", "example": 1 } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/external/messages/send": {
+      "post": {
+        "tags": ["External"],
+        "summary": "Send message using API token",
+        "security": [{ "apiTokenAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/SendMessage" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/external/messages/bulk": {
+      "post": {
+        "tags": ["External"],
+        "summary": "Send bulk messages using API token",
+        "security": [{ "apiTokenAuth": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/Broadcast" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["Operations"],
+        "summary": "Health check",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "503": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/usage": {
+      "get": {
+        "tags": ["Operations"],
+        "summary": "Current user usage",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/rate-limits": {
+      "get": {
+        "tags": ["Operations"],
+        "summary": "Rate limit configuration",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/admin/dashboard": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin dashboard stats",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/admin/audit-logs": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin audit logs",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "example": 50 } }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/admin/sessions": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin WhatsApp sessions",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "example": 100 } }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/admin/sessions/{id}/disconnect": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Disconnect a WhatsApp session",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "apiTokenAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Token"
+      }
+    },
+    "parameters": {
+      "IdPath": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "example": 1 }
+      },
+      "TokenIdPath": {
+        "name": "tokenId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "example": 1 }
+      },
+      "PhoneQuery": {
+        "name": "phone",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "example": "+201001112223" }
+      }
+    },
+    "requestBodies": {
+      "Signup": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/SignupRequest" },
+            "example": {
+              "name": "Test User",
+              "email": "test@example.com",
+              "password": "password123",
+              "phone": "+201001112223"
+            }
+          }
+        }
+      },
+      "OptionalPhone": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": { "phone": { "type": "string", "example": "+201001112223" } }
+            },
+            "example": { "phone": "+201001112223" }
+          }
+        }
+      },
+      "SendMessage": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/SendMessageRequest" },
+            "example": {
+              "senderPhone": "+201018759455",
+              "phone": "+201112223333",
+              "message": "Test message from ApiDog"
+            }
+          }
+        }
+      },
+      "Broadcast": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/BroadcastRequest" },
+            "example": {
+              "senderPhone": "+201018759455",
+              "phoneNumbers": ["+201112223333", "+201144455566"],
+              "messagePool": ["Hello", "Hi there"],
+              "batchSize": 10,
+              "intervalMs": 5000,
+              "repeatCount": 0
+            }
+          }
+        }
+      },
+      "ToggleSchedule": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["scheduleId", "action"],
+              "properties": {
+                "scheduleId": { "type": "integer", "example": 1 },
+                "action": { "type": "string", "enum": ["pause", "resume"], "example": "pause" }
+              }
+            }
+          }
+        }
+      },
+      "Template": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/TemplateRequest" },
+            "example": {
+              "name": "Welcome",
+              "body": "Hello {{name}}",
+              "variables": ["name"]
+            }
+          }
+        }
+      },
+      "Client": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ClientRequest" },
+            "example": {
+              "phone": "+201112223333",
+              "name": "Client Name",
+              "tags": ["lead"],
+              "segment": "sales"
+            }
+          }
+        }
+      },
+      "ImportClients": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ImportClientsRequest" },
+            "example": {
+              "rows": [
+                {
+                  "phone": "+201112223333",
+                  "name": "Client Name",
+                  "tags": ["lead"],
+                  "segment": "sales"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "GenerateToken": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/GenerateTokenRequest" },
+            "example": {
+              "senderPhone": "+201018759455",
+              "name": "Production",
+              "scopes": ["messages:send"],
+              "webhookUrl": "https://example.com/webhook",
+              "expiresAt": "2026-12-31T23:59:59.000Z"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Ok": {
+        "description": "Successful response",
+        "content": {
+          "application/json": {
+            "schema": { "type": "object", "additionalProperties": true }
+          }
+        }
+      },
+      "Error": {
+        "description": "Error response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "success": { "type": "boolean", "example": false },
+                "error": { "type": "string", "example": "Server error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "SignupRequest": {
+        "type": "object",
+        "required": ["email", "password", "phone"],
+        "properties": {
+          "username": { "type": "string" },
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" },
+          "phone": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "phone": { "type": "string" },
+          "password": { "type": "string" }
+        }
+      },
+      "SendMessageRequest": {
+        "type": "object",
+        "required": ["phone", "message"],
+        "properties": {
+          "phone": { "type": "string" },
+          "senderPhone": { "type": "string", "description": "WhatsApp account/session phone to send from" },
+          "fromPhone": { "type": "string", "description": "Alias for senderPhone" },
+          "sessionPhone": { "type": "string", "description": "Alias for senderPhone" },
+          "message": { "type": "string" }
+        }
+      },
+      "BroadcastRequest": {
+        "type": "object",
+        "required": ["phoneNumbers"],
+        "properties": {
+          "phoneNumbers": { "type": "array", "items": { "type": "string" } },
+          "senderPhone": { "type": "string", "description": "WhatsApp account/session phone to send from" },
+          "fromPhone": { "type": "string", "description": "Alias for senderPhone" },
+          "sessionPhone": { "type": "string", "description": "Alias for senderPhone" },
+          "messagePool": { "type": "array", "items": { "type": "string" } },
+          "batchSize": { "type": "integer", "default": 10 },
+          "intervalMs": { "type": "integer", "default": 5000 },
+          "repeatIntervalMs": { "type": "integer" },
+          "repeatCount": { "type": "integer", "default": 0 }
+        }
+      },
+      "TemplateRequest": {
+        "type": "object",
+        "required": ["name", "body"],
+        "properties": {
+          "name": { "type": "string" },
+          "body": { "type": "string" },
+          "variables": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ClientRequest": {
+        "type": "object",
+        "required": ["phone"],
+        "properties": {
+          "phone": { "type": "string" },
+          "name": { "type": "string", "nullable": true },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "segment": { "type": "string", "nullable": true }
+        }
+      },
+      "ImportClientsRequest": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ClientRequest" }
+          },
+          "csv": {
+            "type": "string",
+            "example": "+201112223333,Client Name,lead|vip,sales"
+          }
+        }
+      },
+      "GenerateTokenRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "nullable": true },
+          "phone": { "type": "string", "description": "WhatsApp account/session phone for the API token" },
+          "senderPhone": { "type": "string", "description": "Alias for phone" },
+          "fromPhone": { "type": "string", "description": "Alias for phone" },
+          "sessionPhone": { "type": "string", "description": "Alias for phone" },
+          "scopes": { "type": "array", "items": { "type": "string" }, "default": ["messages:send"] },
+          "webhookUrl": { "type": "string", "nullable": true },
+          "expiresAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      }
+    }
+  }
+}
