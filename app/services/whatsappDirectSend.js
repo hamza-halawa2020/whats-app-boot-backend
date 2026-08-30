@@ -8,7 +8,11 @@ const sendTextViaWWebJS = async (client, deliveryChatId, providerChatId, content
   const result = await client.pupPage.evaluate(
     async (deliveryChatId, providerChatId, content) => {
       const errors = [];
-      const candidateIds = [...new Set([deliveryChatId, providerChatId].filter(Boolean))];
+      const selectedChatId =
+        providerChatId && providerChatId.endsWith("@lid")
+          ? providerChatId
+          : deliveryChatId;
+      const candidateIds = [selectedChatId].filter(Boolean);
 
       const getSerialized = (value) => {
         if (!value) {
@@ -29,6 +33,13 @@ const sendTextViaWWebJS = async (client, deliveryChatId, providerChatId, content
       const getProviderMessageId = (msg, fallbackKey) => {
         if (fallbackKey?._serialized) {
           return fallbackKey._serialized;
+        }
+
+        const fallbackFrom = getSerialized(fallbackKey?.from);
+        const fallbackTo = getSerialized(fallbackKey?.to);
+        const fallbackId = fallbackKey?.id;
+        if (fallbackFrom && fallbackTo && fallbackId) {
+          return `${fallbackFrom}_${fallbackTo}_${fallbackId}`;
         }
 
         if (!msg?.id) {
@@ -86,7 +97,9 @@ const sendTextViaWWebJS = async (client, deliveryChatId, providerChatId, content
           participant,
           selfDir: "out",
         });
-        const providerMessageId = newMsgKey._serialized;
+        const providerMessageId =
+          getProviderMessageId(null, newMsgKey) ||
+          `${getSerialized(from)}_${getSerialized(chat.id)}_${newId}`;
 
         const ephemeralFields = window
           .require("WAWebGetEphemeralFieldsMsgActionsUtils")
@@ -113,7 +126,9 @@ const sendTextViaWWebJS = async (client, deliveryChatId, providerChatId, content
         await sendMsgResultPromise;
 
         const Msg = window.require("WAWebCollections").Msg;
-        const storedMsg = Msg.get(providerMessageId);
+        const storedMsg =
+          Msg.get(providerMessageId) ||
+          (newMsgKey._serialized ? Msg.get(newMsgKey._serialized) : null);
         return {
           providerMessageId:
             getProviderMessageId(storedMsg, newMsgKey) || providerMessageId,
