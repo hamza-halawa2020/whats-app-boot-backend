@@ -15,18 +15,32 @@ const sequelize = new Sequelize(
 );
 
 const connectDB = async () => {
-  try {
-    if (!process.env.DB_NAME || !process.env.DB_USER) {
-      throw new Error("DB_NAME and DB_USER are required");
-    }
-
-    await sequelize.authenticate();
-    await sequelize.sync();
-    await ensureSchemaUpdates(sequelize);
-    logger.info("MySQL connected successfully");
-  } catch (error) {
-    logger.error(`MySQL connection error: ${error.message}`);
+  if (!process.env.DB_NAME || !process.env.DB_USER) {
+    logger.error("MySQL connection error: DB_NAME and DB_USER are required");
     process.exit(1);
+  }
+
+  const maxAttempts = Number(process.env.DB_CONNECT_RETRIES || 10);
+  const retryDelayMs = Number(process.env.DB_CONNECT_RETRY_DELAY_MS || 3000);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await sequelize.authenticate();
+      await sequelize.sync();
+      await ensureSchemaUpdates(sequelize);
+      logger.info("MySQL connected successfully");
+      return;
+    } catch (error) {
+      logger.error(
+        `MySQL connection error: ${error.message} (attempt ${attempt}/${maxAttempts})`
+      );
+
+      if (attempt === maxAttempts) {
+        process.exit(1);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
   }
 };
 

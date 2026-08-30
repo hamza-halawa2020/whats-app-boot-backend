@@ -11,6 +11,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       chromium \
       ca-certificates \
+      curl \
       dumb-init \
       fonts-liberation \
       fonts-noto-color-emoji \
@@ -47,7 +48,7 @@ VOLUME ["/app/.wwebjs_auth", "/app/.wwebjs_cache"]
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD curl --fail --silent --show-error http://127.0.0.1:3000/health > /dev/null || exit 1
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["npm", "start"]
