@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+.wwebjs_auth
+.wwebjs_cache
+*.log
+server.err.log
+server.out.log
+app/whatsapp-bot.log
