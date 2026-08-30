@@ -235,6 +235,7 @@ const initializeWhatsApp = async (userId, phone) => {
         "--disable-features=Crashpad",
         "--disable-background-networking",
         "--disable-component-update",
+        "--disable-dev-shm-usage",
       ],
     },
   });
