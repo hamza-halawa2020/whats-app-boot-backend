@@ -45,6 +45,7 @@ exports.signup = async (req, res) => {
       email,
       password,
       phone,
+      isVerified: true,
     });
     await user.save();
     trace("auth.signup.user_created", {
@@ -100,7 +101,7 @@ exports.login = async (req, res) => {
       error: error.message,
     }, "warn");
     logger.error(`API Login error: ${error.message}`);
-    res.status(401).json({ error: error.message });
+    res.status(error.statusCode || 401).json({ error: error.message });
   }
 };
 

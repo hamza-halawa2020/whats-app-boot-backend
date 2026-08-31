@@ -142,6 +142,50 @@ test("core API integration flow", async (t) => {
   assert.equal(adminCreatedUser.body.user.role, "user");
   assert.equal(Object.hasOwn(adminCreatedUser.body.user, "password"), false);
 
+  const unverifiedUser = await request(baseUrl, "/api/admin/users", {
+    method: "POST",
+    headers: adminHeaders,
+    body: JSON.stringify({
+      username: `blocked${suffix}`.slice(0, 30),
+      email: `blocked-${suffix}@example.com`,
+      phone: `20500${String(suffix).slice(-8)}`,
+      password: "password123",
+      role: "user",
+      isVerified: false,
+    }),
+  });
+  assert.equal(unverifiedUser.response.status, 201);
+  assert.equal(unverifiedUser.body.user.isVerified, false);
+
+  const blockedLogin = await request(baseUrl, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      email: `blocked-${suffix}@example.com`,
+      password: "password123",
+    }),
+  });
+  assert.equal(blockedLogin.response.status, 403);
+
+  const updatedUser = await request(baseUrl, `/api/admin/users/${unverifiedUser.body.user.id}`, {
+    method: "PATCH",
+    headers: adminHeaders,
+    body: JSON.stringify({
+      username: `active${suffix}`.slice(0, 30),
+      isVerified: true,
+    }),
+  });
+  assert.equal(updatedUser.response.status, 200);
+  assert.equal(updatedUser.body.user.isVerified, true);
+
+  const verifiedLogin = await request(baseUrl, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      email: `blocked-${suffix}@example.com`,
+      password: "password123",
+    }),
+  });
+  assert.equal(verifiedLogin.response.status, 200);
+
   const registerWithoutUsername = await request(baseUrl, "/api/auth/register", {
     method: "POST",
     body: JSON.stringify({

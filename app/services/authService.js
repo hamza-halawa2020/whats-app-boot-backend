@@ -18,6 +18,12 @@ const authenticateUser = async (identifier, password) => {
     throw new Error("Invalid login credentials");
   }
 
+  if (!user.isVerified) {
+    const error = new Error("Account is not verified yet");
+    error.statusCode = 403;
+    throw error;
+  }
+
   return user;
 };
 

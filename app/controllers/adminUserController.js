@@ -112,6 +112,67 @@ exports.createUser = async (req, res) => {
   }
 };
 
+exports.updateUser = async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    const allowedFields = ["username", "email", "phone", "password", "role", "isVerified"];
+    const updates = {};
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined && req.body[field] !== "") {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (updates.role && !["admin", "user"].includes(updates.role)) {
+      return res.status(400).json({
+        success: false,
+        error: "Role must be admin or user",
+      });
+    }
+
+    if (user.role === "admin" && updates.role === "user") {
+      const adminCount = await User.count({ where: { role: "admin" } });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot remove the last admin",
+        });
+      }
+    }
+
+    if (updates.isVerified !== undefined) {
+      updates.isVerified = Boolean(updates.isVerified);
+    }
+
+    Object.assign(user, updates);
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "User updated successfully",
+      user: buildPublicUser(user),
+    });
+  } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
+      error.message = "Username, email, or phone already exists";
+      error.statusCode = 400;
+    } else if (error.name === "SequelizeValidationError") {
+      error.message = error.errors?.[0]?.message || "Invalid user data";
+      error.statusCode = 400;
+    }
+
+    return sendError(res, error);
+  }
+};
+
 exports.creditUserWallet = async (req, res) => {
   try {
     const transaction = await creditPoints({

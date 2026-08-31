@@ -7,6 +7,7 @@ const adminUserController = require("../controllers/adminUserController");
 router.use(auth, admin);
 router.get("/", adminUserController.listUsers);
 router.post("/", adminUserController.createUser);
+router.patch("/:id", adminUserController.updateUser);
 router.get("/:id/wallet/transactions", adminUserController.getUserWalletTransactions);
 router.post("/:id/wallet/credit", adminUserController.creditUserWallet);
 router.post("/:id/wallet/debit", adminUserController.debitUserWallet);
