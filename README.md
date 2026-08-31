@@ -29,6 +29,26 @@ npm start
 
 The app will create or sync the required MySQL tables on startup.
 
+## WhatsApp Session Persistence
+
+WhatsApp login is stored by `whatsapp-web.js` under:
+
+```env
+WWEBJS_AUTH_PATH=/app/.wwebjs_auth
+WWEBJS_CACHE_PATH=/app/.wwebjs_cache
+```
+
+When deploying with Docker/Coolify, add persistent storage for both paths:
+
+```text
+/app/.wwebjs_auth
+/app/.wwebjs_cache
+```
+
+If these folders are not persistent, every new container/redeploy can lose the WhatsApp session and the QR code will be required again.
+
+Do not use `/api/whatsapp/restart`, `/api/whatsapp/delete`, or refresh QR unless you intentionally want to remove the saved WhatsApp session and scan again.
+
 WhatsApp Messaging API (External)
 Overview
 This API allows you to send WhatsApp messages and manage API tokens for your connected WhatsApp account.

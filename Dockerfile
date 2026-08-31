@@ -3,7 +3,9 @@ FROM node:20-bookworm-slim
 ENV NODE_ENV=production \
     PORT=3000 \
     PUPPETEER_SKIP_DOWNLOAD=true \
-    CHROME_EXECUTABLE_PATH=/usr/bin/chromium
+    CHROME_EXECUTABLE_PATH=/usr/bin/chromium \
+    WWEBJS_AUTH_PATH=/app/.wwebjs_auth \
+    WWEBJS_CACHE_PATH=/app/.wwebjs_cache
 
 WORKDIR /app
 

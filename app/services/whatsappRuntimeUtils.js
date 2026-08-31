@@ -5,7 +5,8 @@ const getSessionId = (userId, phone) => `${userId}_${phone}`;
 const getLocalAuthClientId = (sessionId) =>
   sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
 
-const getLocalAuthDataPath = () => path.join(__dirname, "../../.wwebjs_auth");
+const getLocalAuthDataPath = () =>
+  process.env.WWEBJS_AUTH_PATH || path.join(__dirname, "../../.wwebjs_auth");
 
 const getLocalAuthSessionPath = (sessionId) =>
   path.join(
