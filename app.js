@@ -59,6 +59,8 @@ const groupsRoutes = require("./app/routes/groups");
 const tokensRoutes = require("./app/routes/tokens");
 const externalRoutes = require("./app/routes/external");
 const operationsRoutes = require("./app/routes/operations");
+const walletRoutes = require("./app/routes/wallet");
+const adminUsersRoutes = require("./app/routes/adminUsers");
 
 app.use(audit);
 app.use(traceHttpRequests);
@@ -71,6 +73,8 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/groups", groupsRoutes);
 app.use("/api/tokens", tokensRoutes);
 app.use("/api/external", messageLimiter, externalRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/admin/users", adminUsersRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

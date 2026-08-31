@@ -14,6 +14,13 @@ const { normalizePhoneNumber } = require("../utils/phone");
 const { sendError } = require("../utils/responses");
 const { trace } = require("../utils/trace");
 const { startSchedule, pauseSchedule } = require("../services/scheduleService");
+const {
+  DEFAULT_MESSAGE_POINT_COST,
+  debitPoints,
+  refundPoints,
+  updateTransactionMessage,
+  getWalletSummary,
+} = require("../services/walletService");
 
 const ScheduledMessage = require("../models/ScheduledMessage");
 
@@ -68,6 +75,8 @@ exports.sendMessage = async (req, res) => {
       status: result.status,
       messageId: result.messageId,
       providerMessageId: result.providerMessageId,
+      pointsCharged: result.pointsCharged,
+      remainingPoints: result.remainingPoints,
     });
   } catch (error) {
     trace(
@@ -197,6 +206,8 @@ exports.sendMessageWithApiToken = async (req, res) => {
       messageId: result.messageId,
       providerMessageId: result.providerMessageId,
       status: result.status,
+      pointsCharged: result.pointsCharged,
+      remainingPoints: result.remainingPoints,
     });
 
     await notifyWebhook(req.apiToken, {
@@ -521,6 +532,16 @@ exports.sendRandomMessages = async (req, res) => {
       cleanedPhoneNumbersCount: cleanedPhoneNumbers.length,
     });
 
+    const requiredPoints = cleanedPhoneNumbers.length * DEFAULT_MESSAGE_POINT_COST;
+    const wallet = await getWalletSummary(userId);
+    if (wallet.walletPoints < requiredPoints) {
+      const error = new Error(
+        `Insufficient wallet points. Required ${requiredPoints}, available ${wallet.walletPoints}.`
+      );
+      error.statusCode = 402;
+      throw error;
+    }
+
     // Save or update clients
     const clients = [];
     for (const phone of cleanedPhoneNumbers) {
@@ -585,8 +606,17 @@ exports.sendRandomMessages = async (req, res) => {
         const chatId = client.phone.endsWith("@c.us")
           ? client.phone
           : `${client.phone}@c.us`;
+        let walletDebit = null;
+        let providerAccepted = false;
 
         try {
+          walletDebit = await debitPoints({
+            userId,
+            points: DEFAULT_MESSAGE_POINT_COST,
+            source: "broadcast",
+            note: `Broadcast WhatsApp message to ${client.phone}`,
+          });
+
           let sentMessage;
           let lastError;
           for (let attempt = 1; attempt <= 3; attempt++) {
@@ -605,17 +635,32 @@ exports.sendRandomMessages = async (req, res) => {
           if (lastError) {
             throw lastError;
           }
+          providerAccepted = true;
 
-          await WhatsAppMessage.build({
+          const savedMessage = await WhatsAppMessage.build({
             userId,
             clientId: client.id,
             phone: client.phone,
             message: randomMessage,
             providerMessageId: sentMessage?.id?._serialized || null,
             status: "sent",
+            walletTransactionId: walletDebit.id,
           }).save();
+          await updateTransactionMessage({
+            transactionId: walletDebit.id,
+            messageId: savedMessage.id,
+          });
           sentCount++;
         } catch (err) {
+          if (walletDebit && !providerAccepted) {
+            await refundPoints({
+              userId,
+              points: DEFAULT_MESSAGE_POINT_COST,
+              source: "broadcast",
+              note: `Refund failed broadcast message to ${client.phone}`,
+            });
+          }
+
           failedCount++;
           errors.push({ phone: client.phone, error: err.message });
           logger.error(`Error sending to ${client.phone}: ${err}`);
@@ -681,6 +726,7 @@ exports.sendRandomMessages = async (req, res) => {
       failedCount,
       scheduleId: scheduleId || null,
     });
+    const remainingWallet = await getWalletSummary(userId);
 
     return res.status(200).json({
       success: true,
@@ -692,6 +738,8 @@ exports.sendRandomMessages = async (req, res) => {
       failedCount,
       errors,
       scheduleId: scheduleId || null,
+      pointsCharged: sentCount * DEFAULT_MESSAGE_POINT_COST,
+      remainingPoints: remainingWallet.walletPoints,
     });
   } catch (error) {
     trace("message.broadcast.error", {

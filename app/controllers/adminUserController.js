@@ -1,0 +1,212 @@
+const User = require("../models/User");
+const { creditPoints, debitPoints, getWalletTransactions } = require("../services/walletService");
+const { sendError } = require("../utils/responses");
+
+const buildPublicUser = (user) => ({
+  id: user.id,
+  username: user.username,
+  email: user.email,
+  phone: user.phone,
+  role: user.role,
+  walletPoints: user.walletPoints,
+  isVerified: user.isVerified,
+  createdAt: user.createdAt,
+});
+
+exports.listUsers = async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: [
+        "id",
+        "username",
+        "email",
+        "phone",
+        "role",
+        "walletPoints",
+        "isVerified",
+        "createdAt",
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.json({
+      success: true,
+      users: users.map(buildPublicUser),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.createUser = async (req, res) => {
+  try {
+    const {
+      username,
+      email,
+      phone,
+      password,
+      role = "user",
+      walletPoints = 0,
+      isVerified = true,
+    } = req.body;
+
+    if (!username || !email || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        error: "Username, email, phone, and password are required",
+      });
+    }
+
+    if (!["admin", "user"].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        error: "Role must be admin or user",
+      });
+    }
+
+    const initialPoints = Number(walletPoints || 0);
+    if (!Number.isInteger(initialPoints) || initialPoints < 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Wallet points must be zero or a positive integer",
+      });
+    }
+
+    const user = await User.create({
+      username,
+      email,
+      phone,
+      password,
+      role,
+      isVerified: Boolean(isVerified),
+    });
+
+    let walletTransaction = null;
+    if (initialPoints > 0) {
+      walletTransaction = await creditPoints({
+        userId: user.id,
+        points: initialPoints,
+        adminId: req.user.id,
+        note: "Initial wallet points",
+      });
+    }
+
+    const freshUser = await User.findByPk(user.id);
+
+    return res.status(201).json({
+      success: true,
+      message: "User created successfully",
+      user: buildPublicUser(freshUser),
+      walletTransaction,
+    });
+  } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
+      error.message = "Username, email, or phone already exists";
+      error.statusCode = 400;
+    } else if (error.name === "SequelizeValidationError") {
+      error.message = error.errors?.[0]?.message || "Invalid user data";
+      error.statusCode = 400;
+    }
+
+    return sendError(res, error);
+  }
+};
+
+exports.creditUserWallet = async (req, res) => {
+  try {
+    const transaction = await creditPoints({
+      userId: req.params.id,
+      points: req.body.points,
+      adminId: req.user.id,
+      note: req.body.note || null,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Points added successfully",
+      transaction,
+      walletPoints: transaction.balanceAfter,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.debitUserWallet = async (req, res) => {
+  try {
+    const transaction = await debitPoints({
+      userId: req.params.id,
+      points: req.body.points,
+      source: "admin",
+      adminId: req.user.id,
+      note: req.body.note || null,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Points deducted successfully",
+      transaction,
+      walletPoints: transaction.balanceAfter,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.updateUserRole = async (req, res) => {
+  try {
+    const { role } = req.body;
+    if (!["admin", "user"].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        error: "Role must be admin or user",
+      });
+    }
+
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    if (user.role === "admin" && role === "user") {
+      const adminCount = await User.count({ where: { role: "admin" } });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot remove the last admin",
+        });
+      }
+    }
+
+    user.role = role;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "User role updated successfully",
+      user: buildPublicUser(user),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.getUserWalletTransactions = async (req, res) => {
+  try {
+    const history = await getWalletTransactions({
+      userId: req.params.id,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+
+    return res.json({
+      success: true,
+      ...history,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};

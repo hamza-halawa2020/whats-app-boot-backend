@@ -8,6 +8,12 @@ const {
   prepareWhatsAppForMessage,
   getSessionId,
 } = require("./whatsappService");
+const {
+  DEFAULT_MESSAGE_POINT_COST,
+  debitPoints,
+  refundPoints,
+  updateTransactionMessage,
+} = require("./walletService");
 const logger = require("../utils/logger");
 
 const timers = new Map();
@@ -43,17 +49,44 @@ const sendScheduledBatch = async (schedule, userPhone) => {
     const chatId = client.phone.endsWith("@c.us")
       ? client.phone
       : `${client.phone}@c.us`;
+    let walletDebit = null;
+    let providerAccepted = false;
 
     try {
-      await whatsapp.sendMessage(chatId, randomMessage, { sendSeen: false });
-      await WhatsAppMessage.build({
+      walletDebit = await debitPoints({
+        userId: schedule.userId,
+        points: DEFAULT_MESSAGE_POINT_COST,
+        source: "schedule",
+        note: `Scheduled WhatsApp message to ${client.phone}`,
+      });
+
+      const sentMessage = await whatsapp.sendMessage(chatId, randomMessage, { sendSeen: false });
+      providerAccepted = true;
+
+      const savedMessage = await WhatsAppMessage.build({
         userId: schedule.userId,
         clientId: client.id,
         phone: client.phone,
         message: randomMessage,
+        providerMessageId: sentMessage?.id?._serialized || null,
+        status: "sent",
+        walletTransactionId: walletDebit.id,
       }).save();
+      await updateTransactionMessage({
+        transactionId: walletDebit.id,
+        messageId: savedMessage.id,
+      });
       sentCount++;
     } catch (error) {
+      if (walletDebit && !providerAccepted) {
+        await refundPoints({
+          userId: schedule.userId,
+          points: DEFAULT_MESSAGE_POINT_COST,
+          source: "schedule",
+          note: `Refund failed scheduled message to ${client.phone}`,
+        });
+      }
+
       logger.error(`Scheduled message failed for ${client.phone}: ${error}`);
     }
   }

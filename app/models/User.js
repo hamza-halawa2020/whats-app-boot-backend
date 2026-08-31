@@ -56,6 +56,11 @@ const User = sequelize.define(
       type: DataTypes.ENUM("user", "admin"),
       defaultValue: "user",
     },
+    walletPoints: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
+      allowNull: false,
+    },
     tokens: {
       type: DataTypes.JSON,
       defaultValue: [],
@@ -94,7 +99,6 @@ User.prototype.toJSON = function () {
   const user = { ...this.get({ plain: true }), _id: this.id };
 
   delete user.password;
-  delete user.role;
   delete user.tokens;
 
   return user;

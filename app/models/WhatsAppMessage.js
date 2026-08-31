@@ -2,6 +2,7 @@ const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/database");
 const User = require("./User");
 const Client = require("./Client");
+const WalletTransaction = require("./WalletTransaction");
 
 const WhatsAppMessage = sequelize.define(
   "WhatsAppMessage",
@@ -36,6 +37,10 @@ const WhatsAppMessage = sequelize.define(
       type: DataTypes.ENUM("pending", "sent", "delivered", "read", "played", "failed", "unknown"),
       defaultValue: "sent",
     },
+    walletTransactionId: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+    },
     error: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -61,6 +66,10 @@ const WhatsAppMessage = sequelize.define(
 
 WhatsAppMessage.belongsTo(User, { as: "user", foreignKey: "userId" });
 WhatsAppMessage.belongsTo(Client, { as: "client", foreignKey: "clientId" });
+WhatsAppMessage.belongsTo(WalletTransaction, {
+  as: "walletTransaction",
+  foreignKey: "walletTransactionId",
+});
 User.hasMany(WhatsAppMessage, { as: "messages", foreignKey: "userId" });
 Client.hasMany(WhatsAppMessage, { as: "messages", foreignKey: "clientId" });
 

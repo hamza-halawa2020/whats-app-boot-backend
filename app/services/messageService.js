@@ -9,6 +9,13 @@ const Client = require("../models/Client");
 const { normalizePhoneNumber } = require("../utils/phone");
 const { trace } = require("../utils/trace");
 const { sendTextViaWWebJS } = require("./whatsappDirectSend");
+const {
+  DEFAULT_MESSAGE_POINT_COST,
+  debitPoints,
+  refundPoints,
+  getWalletSummary,
+  updateTransactionMessage,
+} = require("./walletService");
 
 const inFlightMessageSends = new Map();
 
@@ -230,6 +237,14 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
     messageLength: message?.length || 0,
   });
 
+  const messageCost = DEFAULT_MESSAGE_POINT_COST;
+  const wallet = await getWalletSummary(user.id);
+  if (wallet.walletPoints < messageCost) {
+    const error = new Error("Insufficient wallet points");
+    error.statusCode = 402;
+    throw error;
+  }
+
   let client = await Client.findOne({
     where: {
       phone: normalizedPhone,
@@ -312,48 +327,99 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
   }
 
   const sendPromise = (async () => {
-    trace("message.service.provider_send.before", {
-      userId: user.id,
-      sessionId,
-      chatId,
-    });
+    let walletDebit = null;
+    let providerAccepted = false;
 
-    const sentMessage = await sendTextMessage(whatsapp, chatId, message);
+    try {
+      walletDebit = await debitPoints({
+        userId: user.id,
+        points: messageCost,
+        source: "message",
+        note: `Send WhatsApp message to ${normalizedPhone}`,
+      });
 
-    trace("message.service.provider_send.after", {
-      userId: user.id,
-      sessionId,
-      providerMessageId: sentMessage.providerMessageId,
-      chatId: sentMessage.chatId,
-      providerChatId: sentMessage.providerChatId,
-      sendMode: sentMessage.mode,
-      returnedMessage: sentMessage.returnedMessage,
-    });
+      trace("message.service.wallet.debited", {
+        userId: user.id,
+        sessionId,
+        points: messageCost,
+        walletTransactionId: walletDebit.id,
+        balanceAfter: walletDebit.balanceAfter,
+      });
 
-    const savedMessage = await WhatsAppMessage.build({
-      userId: user.id,
-      clientId: client.id,
-      phone: normalizedPhone,
-      message,
-      providerMessageId: sentMessage.providerMessageId,
-      status: "pending",
-    }).save();
+      trace("message.service.provider_send.before", {
+        userId: user.id,
+        sessionId,
+        chatId,
+      });
 
-    trace("message.service.saved", {
-      userId: user.id,
-      sessionId,
-      messageId: savedMessage.id,
-      providerMessageId: savedMessage.providerMessageId,
-      status: savedMessage.status,
-    });
+      const sentMessage = await sendTextMessage(whatsapp, chatId, message);
+      providerAccepted = true;
 
-    return {
-      phone: normalizedPhone,
-      senderPhone: resolvedSenderPhone,
-      messageId: savedMessage.id,
-      providerMessageId: savedMessage.providerMessageId,
-      status: savedMessage.status,
-    };
+      trace("message.service.provider_send.after", {
+        userId: user.id,
+        sessionId,
+        providerMessageId: sentMessage.providerMessageId,
+        chatId: sentMessage.chatId,
+        providerChatId: sentMessage.providerChatId,
+        sendMode: sentMessage.mode,
+        returnedMessage: sentMessage.returnedMessage,
+      });
+
+      const savedMessage = await WhatsAppMessage.build({
+        userId: user.id,
+        clientId: client.id,
+        phone: normalizedPhone,
+        message,
+        providerMessageId: sentMessage.providerMessageId,
+        status: "pending",
+        walletTransactionId: walletDebit.id,
+      }).save();
+
+      await updateTransactionMessage({
+        transactionId: walletDebit.id,
+        messageId: savedMessage.id,
+      });
+
+      trace("message.service.saved", {
+        userId: user.id,
+        sessionId,
+        messageId: savedMessage.id,
+        providerMessageId: savedMessage.providerMessageId,
+        status: savedMessage.status,
+        walletTransactionId: walletDebit.id,
+      });
+
+      return {
+        phone: normalizedPhone,
+        senderPhone: resolvedSenderPhone,
+        messageId: savedMessage.id,
+        providerMessageId: savedMessage.providerMessageId,
+        status: savedMessage.status,
+        pointsCharged: messageCost,
+        remainingPoints: walletDebit.balanceAfter,
+      };
+    } catch (error) {
+      if (walletDebit && !providerAccepted) {
+        const refund = await refundPoints({
+          userId: user.id,
+          points: messageCost,
+          source: "message",
+          note: `Refund failed WhatsApp message to ${normalizedPhone}`,
+        });
+
+        trace("message.service.wallet.refunded", {
+          userId: user.id,
+          sessionId,
+          points: messageCost,
+          debitTransactionId: walletDebit.id,
+          refundTransactionId: refund.id,
+          balanceAfter: refund.balanceAfter,
+          sendError: error.message,
+        }, "warn");
+      }
+
+      throw error;
+    }
   })();
 
   inFlightMessageSends.set(sendKey, sendPromise);

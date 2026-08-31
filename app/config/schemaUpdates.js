@@ -24,8 +24,31 @@ const ensureColumn = async (sequelize, tableName, columnName, definition) => {
   await sequelize.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 };
 
+const ensureWalletTransactionsTable = async (sequelize) => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      userId INT UNSIGNED NOT NULL,
+      type ENUM('credit','debit','refund','adjustment') NOT NULL,
+      source ENUM('admin','message','broadcast','schedule','payment','system') NOT NULL,
+      points INT UNSIGNED NOT NULL,
+      balanceBefore INT UNSIGNED NOT NULL,
+      balanceAfter INT UNSIGNED NOT NULL,
+      messageId INT UNSIGNED NULL,
+      adminId INT UNSIGNED NULL,
+      note VARCHAR(255) NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX wallet_transactions_user_created (userId, createdAt),
+      INDEX wallet_transactions_message (messageId),
+      INDEX wallet_transactions_admin (adminId)
+    )
+  `);
+};
+
 const ensureSchemaUpdates = async (sequelize) => {
   const columns = [
+    ["users", "walletPoints", "INT UNSIGNED NOT NULL DEFAULT 0"],
     ["api_tokens", "name", "VARCHAR(255) NULL"],
     ["api_tokens", "scopes", "JSON NULL"],
     ["api_tokens", "webhookUrl", "VARCHAR(255) NULL"],
@@ -43,12 +66,15 @@ const ensureSchemaUpdates = async (sequelize) => {
     ["whatsapp_messages", "error", "TEXT NULL"],
     ["whatsapp_messages", "deliveredAt", "DATETIME NULL"],
     ["whatsapp_messages", "readAt", "DATETIME NULL"],
+    ["whatsapp_messages", "walletTransactionId", "INT UNSIGNED NULL"],
     ["whatsapp_sessions", "phone", "VARCHAR(255) NULL"],
   ];
 
   for (const [tableName, columnName, definition] of columns) {
     await ensureColumn(sequelize, tableName, columnName, definition);
   }
+
+  await ensureWalletTransactionsTable(sequelize);
 };
 
 module.exports = ensureSchemaUpdates;

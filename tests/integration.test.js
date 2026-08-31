@@ -5,7 +5,9 @@ require("dotenv").config();
 
 const { app } = require("../app");
 const { sequelize } = require("../app/config/database");
+const ensureSchemaUpdates = require("../app/config/schemaUpdates");
 const ApiToken = require("../app/models/ApiToken");
+const User = require("../app/models/User");
 
 const request = async (baseUrl, path, options = {}) => {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -20,7 +22,8 @@ const request = async (baseUrl, path, options = {}) => {
 };
 
 test("core API integration flow", async (t) => {
-  await sequelize.sync({ alter: true });
+  await sequelize.sync();
+  await ensureSchemaUpdates(sequelize);
   const server = app.listen(0);
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
@@ -59,6 +62,85 @@ test("core API integration flow", async (t) => {
     body: JSON.stringify({ phone: signup.body.user.phone, password: "password123" }),
   });
   assert.equal(phoneLogin.response.status, 200);
+
+  const me = await request(baseUrl, "/api/auth/me", {
+    headers: authHeaders,
+  });
+  assert.equal(me.response.status, 200);
+  assert.equal(me.body.user.role, "user");
+  assert.equal(me.body.user.walletPoints, 0);
+
+  const wallet = await request(baseUrl, "/api/wallet", {
+    headers: authHeaders,
+  });
+  assert.equal(wallet.response.status, 200);
+  assert.equal(wallet.body.wallet.walletPoints, 0);
+
+  const normalUserAdminList = await request(baseUrl, "/api/admin/users", {
+    headers: authHeaders,
+  });
+  assert.equal(normalUserAdminList.response.status, 403);
+
+  const sendWithoutPoints = await request(baseUrl, "/api/messages/messages", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      phone: "+20 111 777 8888",
+      message: "Should not send without points",
+    }),
+  });
+  assert.equal(sendWithoutPoints.response.status, 402);
+  assert.equal(sendWithoutPoints.body.error, "Insufficient wallet points");
+
+  const adminUser = await User.create({
+    username: `admin${suffix}`.slice(0, 30),
+    email: `admin-${suffix}@example.com`,
+    password: "password123",
+    phone: `20300${String(suffix).slice(-8)}`,
+    role: "admin",
+  });
+  const adminToken = await adminUser.generateAuthToken();
+  const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+
+  const creditWallet = await request(baseUrl, `/api/admin/users/${signup.body.user.id}/wallet/credit`, {
+    method: "POST",
+    headers: adminHeaders,
+    body: JSON.stringify({ points: 5, note: "test credit" }),
+  });
+  assert.equal(creditWallet.response.status, 201);
+  assert.equal(creditWallet.body.walletPoints, 5);
+
+  const debitWallet = await request(baseUrl, `/api/admin/users/${signup.body.user.id}/wallet/debit`, {
+    method: "POST",
+    headers: adminHeaders,
+    body: JSON.stringify({ points: 2, note: "test debit" }),
+  });
+  assert.equal(debitWallet.response.status, 201);
+  assert.equal(debitWallet.body.walletPoints, 3);
+
+  const walletAfterAdminActions = await request(baseUrl, "/api/wallet", {
+    headers: authHeaders,
+  });
+  assert.equal(walletAfterAdminActions.response.status, 200);
+  assert.equal(walletAfterAdminActions.body.wallet.walletPoints, 3);
+  assert.equal(walletAfterAdminActions.body.transactions.length, 2);
+
+  const adminCreatedUser = await request(baseUrl, "/api/admin/users", {
+    method: "POST",
+    headers: adminHeaders,
+    body: JSON.stringify({
+      username: `created${suffix}`.slice(0, 30),
+      email: `created-${suffix}@example.com`,
+      phone: `20400${String(suffix).slice(-8)}`,
+      password: "password123",
+      role: "user",
+      walletPoints: 7,
+    }),
+  });
+  assert.equal(adminCreatedUser.response.status, 201);
+  assert.equal(adminCreatedUser.body.user.walletPoints, 7);
+  assert.equal(adminCreatedUser.body.user.role, "user");
+  assert.equal(Object.hasOwn(adminCreatedUser.body.user, "password"), false);
 
   const registerWithoutUsername = await request(baseUrl, "/api/auth/register", {
     method: "POST",
