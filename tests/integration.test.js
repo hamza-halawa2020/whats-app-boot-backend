@@ -46,16 +46,43 @@ test("core API integration flow", async (t) => {
   });
 
   assert.equal(signup.response.status, 201);
-  assert.ok(signup.body.token);
-
-  const token = signup.body.token;
-  const authHeaders = { Authorization: `Bearer ${token}` };
+  assert.equal(Object.hasOwn(signup.body, "token"), false);
+  assert.equal(signup.body.user.isVerified, false);
 
   const login = await request(baseUrl, "/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password: "password123" }),
   });
-  assert.equal(login.response.status, 200);
+  assert.equal(login.response.status, 403);
+
+  const adminUser = await User.create({
+    username: `admin${suffix}`.slice(0, 30),
+    email: `admin-${suffix}@example.com`,
+    password: "password123",
+    phone: `20300${String(suffix).slice(-8)}`,
+    role: "admin",
+    isVerified: true,
+  });
+  const adminToken = await adminUser.generateAuthToken();
+  const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+
+  const verifiedSignupUser = await request(baseUrl, `/api/admin/users/${signup.body.user.id}`, {
+    method: "PATCH",
+    headers: adminHeaders,
+    body: JSON.stringify({ isVerified: true }),
+  });
+  assert.equal(verifiedSignupUser.response.status, 200);
+  assert.equal(verifiedSignupUser.body.user.isVerified, true);
+
+  const verifiedSignupLogin = await request(baseUrl, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: "password123" }),
+  });
+  assert.equal(verifiedSignupLogin.response.status, 200);
+  assert.ok(verifiedSignupLogin.body.token);
+
+  const token = verifiedSignupLogin.body.token;
+  const authHeaders = { Authorization: `Bearer ${token}` };
 
   const phoneLogin = await request(baseUrl, "/api/auth/login", {
     method: "POST",
@@ -91,16 +118,6 @@ test("core API integration flow", async (t) => {
   });
   assert.equal(sendWithoutPoints.response.status, 402);
   assert.equal(sendWithoutPoints.body.error, "Insufficient wallet points");
-
-  const adminUser = await User.create({
-    username: `admin${suffix}`.slice(0, 30),
-    email: `admin-${suffix}@example.com`,
-    password: "password123",
-    phone: `20300${String(suffix).slice(-8)}`,
-    role: "admin",
-  });
-  const adminToken = await adminUser.generateAuthToken();
-  const adminHeaders = { Authorization: `Bearer ${adminToken}` };
 
   const creditWallet = await request(baseUrl, `/api/admin/users/${signup.body.user.id}/wallet/credit`, {
     method: "POST",
@@ -196,6 +213,8 @@ test("core API integration flow", async (t) => {
     }),
   });
   assert.equal(registerWithoutUsername.response.status, 201);
+  assert.equal(Object.hasOwn(registerWithoutUsername.body, "token"), false);
+  assert.equal(registerWithoutUsername.body.user.isVerified, false);
 
   const addClient = await request(baseUrl, "/api/clients", {
     method: "POST",

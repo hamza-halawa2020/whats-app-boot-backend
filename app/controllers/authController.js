@@ -45,7 +45,7 @@ exports.signup = async (req, res) => {
       email,
       password,
       phone,
-      isVerified: true,
+      isVerified: false,
     });
     await user.save();
     trace("auth.signup.user_created", {
@@ -55,12 +55,11 @@ exports.signup = async (req, res) => {
       phone,
     });
 
-    const token = await user.generateAuthToken();
-    trace("auth.signup.token_created", {
-      requestId: req.requestId || null,
-      userId: user.id,
+    res.status(201).json({
+      success: true,
+      message: "Account created successfully. Please wait for admin approval.",
+      user,
     });
-    res.status(201).json({ user, token });
   } catch (error) {
     trace("auth.signup.error", {
       requestId: req.requestId || null,
