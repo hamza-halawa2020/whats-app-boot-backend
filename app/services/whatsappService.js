@@ -228,6 +228,7 @@ const initializeWhatsApp = async (userId, phone) => {
     puppeteer: {
       headless: true,
       executablePath: getChromeExecutablePath(),
+      dumpio: process.env.PUPPETEER_DUMP_IO === "true",
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
