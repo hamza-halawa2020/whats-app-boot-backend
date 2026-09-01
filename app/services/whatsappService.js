@@ -115,6 +115,40 @@ const forceCloseBrowser = async (sessionId, client) => {
   }
 };
 
+const cleanupLocalAuthLaunchLocks = async (sessionId) => {
+  const sessionPath = getLocalAuthSessionPath(sessionId);
+  const lockFiles = [
+    "SingletonLock",
+    "SingletonSocket",
+    "SingletonCookie",
+    "DevToolsActivePort",
+    "lockfile",
+  ];
+
+  await Promise.all(
+    lockFiles.map(async (fileName) => {
+      const filePath = `${sessionPath}/${fileName}`;
+      try {
+        await fs.lstat(filePath);
+        await fs.rm(filePath, { force: true });
+        trace("whatsapp.auth_launch_lock.cleanup", {
+          sessionId,
+          fileName,
+        });
+      } catch (error) {
+        if (!["ENOENT", "EPERM", "EBUSY"].includes(error.code)) {
+          trace("whatsapp.auth_launch_lock.cleanup_failed", {
+            sessionId,
+            fileName,
+            error: error.message,
+            code: error.code || null,
+          }, "warn");
+        }
+      }
+    })
+  );
+};
+
 const cleanupWhatsAppClient = async (sessionId, client, status = "disconnected") => {
   if (cleanupClients.has(sessionId)) {
     trace("whatsapp.client.cleanup.await_existing", { sessionId, status });
@@ -219,6 +253,8 @@ const initializeWhatsApp = async (userId, phone) => {
       sessionId,
     },
   });
+
+  await cleanupLocalAuthLaunchLocks(sessionId);
 
   const whatsapp = new Client({
     authStrategy: new LocalAuth({

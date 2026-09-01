@@ -1,4 +1,7 @@
 const { sequelize } = require("../config/database");
+const fs = require("fs/promises");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const User = require("../models/User");
 const Client = require("../models/Client");
 const WhatsAppMessage = require("../models/WhatsAppMessage");
@@ -15,6 +18,8 @@ const {
 const { sendError } = require("../utils/responses");
 const logger = require("../utils/logger");
 const { trace } = require("../utils/trace");
+
+const execFileAsync = promisify(execFile);
 
 exports.health = async (req, res) => {
   try {
@@ -177,15 +182,60 @@ exports.rateLimits = (req, res) => {
   });
 };
 
-exports.chromeDiagnostics = (req, res) => {
+exports.chromeDiagnostics = async (req, res) => {
+  const chromeExecutablePath = getChromeExecutablePath();
+  const smokeTestProfilePath = `/tmp/chromium-smoke-${Date.now()}`;
+  let smokeTest = null;
+
+  if (chromeExecutablePath) {
+    try {
+      await fs.mkdir(smokeTestProfilePath, { recursive: true });
+      const result = await execFileAsync(
+        chromeExecutablePath,
+        [
+          "--headless=new",
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--disable-crash-reporter",
+          "--disable-crashpad",
+          "--disable-breakpad",
+          `--user-data-dir=${smokeTestProfilePath}`,
+          "--dump-dom",
+          "about:blank",
+        ],
+        { timeout: 15000, maxBuffer: 1024 * 1024 }
+      );
+
+      smokeTest = {
+        ok: true,
+        stdout: result.stdout?.slice(0, 1000) || "",
+        stderr: result.stderr?.slice(0, 3000) || "",
+      };
+    } catch (error) {
+      smokeTest = {
+        ok: false,
+        message: error.message,
+        code: error.code || null,
+        signal: error.signal || null,
+        stdout: error.stdout?.slice(0, 1000) || "",
+        stderr: error.stderr?.slice(0, 3000) || "",
+      };
+    } finally {
+      await fs.rm(smokeTestProfilePath, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   return res.json({
     success: true,
     platform: process.platform,
     user: process.getuid ? process.getuid() : null,
-    chromeExecutablePath: getChromeExecutablePath() || null,
+    chromeExecutablePath: chromeExecutablePath || null,
     chromeExecutableDiagnostics: getChromeExecutableDiagnostics(),
     wwebjsAuthPath: getLocalAuthDataPath(),
     envChromeExecutablePath: process.env.CHROME_EXECUTABLE_PATH || null,
+    smokeTest,
   });
 };
 
