@@ -1,6 +1,7 @@
 const { sequelize } = require("../config/database");
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
+const { getAppSettings } = require("./settingsService");
 
 const DEFAULT_MESSAGE_POINT_COST = Number(process.env.MESSAGE_POINT_COST || 1);
 
@@ -178,6 +179,10 @@ const getWalletTransactions = async ({ userId, page = 1, limit = 20 }) => {
 
 module.exports = {
   DEFAULT_MESSAGE_POINT_COST,
+  getMessagePointCost: async () => {
+    const settings = await getAppSettings();
+    return settings.messagePointCost;
+  },
   creditPoints,
   debitPoints,
   refundPoints,

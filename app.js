@@ -61,6 +61,8 @@ const externalRoutes = require("./app/routes/external");
 const operationsRoutes = require("./app/routes/operations");
 const walletRoutes = require("./app/routes/wallet");
 const adminUsersRoutes = require("./app/routes/adminUsers");
+const settingsRoutes = require("./app/routes/settings");
+const appSettingsRoutes = require("./app/routes/appSettings");
 
 app.use(audit);
 app.use(traceHttpRequests);
@@ -75,6 +77,8 @@ app.use("/api/tokens", tokensRoutes);
 app.use("/api/external", messageLimiter, externalRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/users", adminUsersRoutes);
+app.use("/api/admin/settings", settingsRoutes);
+app.use("/api/settings", appSettingsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

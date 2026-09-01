@@ -46,6 +46,36 @@ const ensureWalletTransactionsTable = async (sequelize) => {
   `);
 };
 
+const ensureUserOtpsTable = async (sequelize) => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS user_otps (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      userId INT UNSIGNED NOT NULL,
+      phone VARCHAR(255) NOT NULL,
+      codeHash VARCHAR(255) NOT NULL,
+      expiresAt DATETIME NOT NULL,
+      usedAt DATETIME NULL,
+      attempts INT UNSIGNED NOT NULL DEFAULT 0,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX user_otps_user_created (userId, createdAt),
+      INDEX user_otps_phone_created (phone, createdAt)
+    )
+  `);
+};
+
+const ensureSystemSettingsTable = async (sequelize) => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      \`key\` VARCHAR(80) NOT NULL,
+      \`value\` JSON NOT NULL,
+      updatedBy INT UNSIGNED NULL,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`key\`)
+    )
+  `);
+};
+
 const ensureSchemaUpdates = async (sequelize) => {
   const columns = [
     ["users", "walletPoints", "INT UNSIGNED NOT NULL DEFAULT 0"],
@@ -74,7 +104,10 @@ const ensureSchemaUpdates = async (sequelize) => {
     await ensureColumn(sequelize, tableName, columnName, definition);
   }
 
+  await sequelize.query("ALTER TABLE users MODIFY COLUMN email VARCHAR(255) NULL");
   await ensureWalletTransactionsTable(sequelize);
+  await ensureUserOtpsTable(sequelize);
+  await ensureSystemSettingsTable(sequelize);
 };
 
 module.exports = ensureSchemaUpdates;

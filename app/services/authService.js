@@ -2,11 +2,29 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
+const { getPhoneLoginLookupValues } = require("../utils/phone");
 
 const authenticateUser = async (identifier, password) => {
+  const isEmailLogin = String(identifier || "").includes("@");
+  const phoneLookupValues = isEmailLogin ? [] : getPhoneLoginLookupValues(identifier);
+  const phoneDigits = isEmailLogin
+    ? ""
+    : String(identifier || "").trim().replace(/[^0-9]/g, "");
+  const phoneConditions = phoneLookupValues.map((phone) => ({ phone }));
+
+  if (!isEmailLogin && phoneDigits.length >= 8) {
+    phoneConditions.push({ phone: { [Op.like]: `%${phoneDigits}` } });
+    if (phoneDigits.startsWith("0") && phoneDigits.length > 8) {
+      phoneConditions.push({ phone: { [Op.like]: `%${phoneDigits.slice(1)}` } });
+    }
+  }
+
   const user = await User.findOne({
     where: {
-      [Op.or]: [{ email: identifier }, { phone: identifier }],
+      [Op.or]: [
+        { email: identifier },
+        ...phoneConditions,
+      ],
     },
   });
   if (!user) {

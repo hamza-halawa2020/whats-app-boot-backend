@@ -8,14 +8,17 @@ const WhatsAppMessage = require("../models/WhatsAppMessage");
 const Client = require("../models/Client");
 const ApiToken = require("../models/ApiToken");
 const MessageTemplate = require("../models/MessageTemplate");
-const { sendWhatsAppMessage } = require("../services/messageService");
+const {
+  assertDailyMessageLimit,
+  sendWhatsAppMessage,
+} = require("../services/messageService");
 const { Op } = require("sequelize");
 const { normalizePhoneNumber } = require("../utils/phone");
 const { sendError } = require("../utils/responses");
 const { trace } = require("../utils/trace");
 const { startSchedule, pauseSchedule } = require("../services/scheduleService");
 const {
-  DEFAULT_MESSAGE_POINT_COST,
+  getMessagePointCost,
   debitPoints,
   refundPoints,
   updateTransactionMessage,
@@ -532,7 +535,9 @@ exports.sendRandomMessages = async (req, res) => {
       cleanedPhoneNumbersCount: cleanedPhoneNumbers.length,
     });
 
-    const requiredPoints = cleanedPhoneNumbers.length * DEFAULT_MESSAGE_POINT_COST;
+    const messageCost = await getMessagePointCost();
+    await assertDailyMessageLimit(userId, cleanedPhoneNumbers.length);
+    const requiredPoints = cleanedPhoneNumbers.length * messageCost;
     const wallet = await getWalletSummary(userId);
     if (wallet.walletPoints < requiredPoints) {
       const error = new Error(
@@ -612,7 +617,7 @@ exports.sendRandomMessages = async (req, res) => {
         try {
           walletDebit = await debitPoints({
             userId,
-            points: DEFAULT_MESSAGE_POINT_COST,
+            points: messageCost,
             source: "broadcast",
             note: `Broadcast WhatsApp message to ${client.phone}`,
           });
@@ -655,7 +660,7 @@ exports.sendRandomMessages = async (req, res) => {
           if (walletDebit && !providerAccepted) {
             await refundPoints({
               userId,
-              points: DEFAULT_MESSAGE_POINT_COST,
+              points: messageCost,
               source: "broadcast",
               note: `Refund failed broadcast message to ${client.phone}`,
             });
@@ -738,7 +743,7 @@ exports.sendRandomMessages = async (req, res) => {
       failedCount,
       errors,
       scheduleId: scheduleId || null,
-      pointsCharged: sentCount * DEFAULT_MESSAGE_POINT_COST,
+      pointsCharged: sentCount * messageCost,
       remainingPoints: remainingWallet.walletPoints,
     });
   } catch (error) {

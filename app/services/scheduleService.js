@@ -9,11 +9,12 @@ const {
   getSessionId,
 } = require("./whatsappService");
 const {
-  DEFAULT_MESSAGE_POINT_COST,
+  getMessagePointCost,
   debitPoints,
   refundPoints,
   updateTransactionMessage,
 } = require("./walletService");
+const { assertDailyMessageLimit } = require("./messageService");
 const logger = require("../utils/logger");
 
 const timers = new Map();
@@ -42,6 +43,8 @@ const sendScheduledBatch = async (schedule, userPhone) => {
   });
 
   let sentCount = 0;
+  const messageCost = await getMessagePointCost();
+  await assertDailyMessageLimit(schedule.userId, clients.length);
 
   for (const client of clients) {
     const randomMessage =
@@ -55,7 +58,7 @@ const sendScheduledBatch = async (schedule, userPhone) => {
     try {
       walletDebit = await debitPoints({
         userId: schedule.userId,
-        points: DEFAULT_MESSAGE_POINT_COST,
+        points: messageCost,
         source: "schedule",
         note: `Scheduled WhatsApp message to ${client.phone}`,
       });
@@ -81,7 +84,7 @@ const sendScheduledBatch = async (schedule, userPhone) => {
       if (walletDebit && !providerAccepted) {
         await refundPoints({
           userId: schedule.userId,
-          points: DEFAULT_MESSAGE_POINT_COST,
+          points: messageCost,
           source: "schedule",
           note: `Refund failed scheduled message to ${client.phone}`,
         });

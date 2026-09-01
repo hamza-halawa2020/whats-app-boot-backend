@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const { creditPoints, debitPoints, getWalletTransactions } = require("../services/walletService");
 const { sendError } = require("../utils/responses");
+const { normalizePhoneNumber } = require("../utils/phone");
 
 const buildPublicUser = (user) => ({
   id: user.id,
@@ -50,10 +51,10 @@ exports.createUser = async (req, res) => {
       isVerified = true,
     } = req.body;
 
-    if (!username || !email || !phone || !password) {
+    if (!username || !phone || !password) {
       return res.status(400).json({
         success: false,
-        error: "Username, email, phone, and password are required",
+        error: "Username, phone, and password are required",
       });
     }
 
@@ -74,8 +75,8 @@ exports.createUser = async (req, res) => {
 
     const user = await User.create({
       username,
-      email,
-      phone,
+      email: email ? email.trim().toLowerCase() : null,
+      phone: normalizePhoneNumber(phone),
       password,
       role,
       isVerified: Boolean(isVerified),
@@ -150,6 +151,14 @@ exports.updateUser = async (req, res) => {
 
     if (updates.isVerified !== undefined) {
       updates.isVerified = Boolean(updates.isVerified);
+    }
+
+    if (updates.email !== undefined) {
+      updates.email = updates.email ? updates.email.trim().toLowerCase() : null;
+    }
+
+    if (updates.phone !== undefined) {
+      updates.phone = normalizePhoneNumber(updates.phone);
     }
 
     Object.assign(user, updates);

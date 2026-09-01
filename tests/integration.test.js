@@ -2,11 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 require("dotenv").config();
+process.env.OTP_DELIVERY_MODE = "log";
 
 const { app } = require("../app");
 const { sequelize } = require("../app/config/database");
 const ensureSchemaUpdates = require("../app/config/schemaUpdates");
 const ApiToken = require("../app/models/ApiToken");
+const SystemSetting = require("../app/models/SystemSetting");
 const User = require("../app/models/User");
 
 const request = async (baseUrl, path, options = {}) => {
@@ -24,6 +26,7 @@ const request = async (baseUrl, path, options = {}) => {
 test("core API integration flow", async (t) => {
   await sequelize.sync();
   await ensureSchemaUpdates(sequelize);
+  await SystemSetting.destroy({ truncate: true });
   const server = app.listen(0);
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
@@ -33,25 +36,25 @@ test("core API integration flow", async (t) => {
   const { port } = server.address();
   const baseUrl = `http://127.0.0.1:${port}`;
   const suffix = Date.now();
-  const email = `integration-${suffix}@example.com`;
 
   const signup = await request(baseUrl, "/api/auth/signup", {
     method: "POST",
     body: JSON.stringify({
-      username: `tester${suffix}`,
-      email,
+      name: `Tester ${suffix}`,
       password: "password123",
-      phone: `20100${String(suffix).slice(-8)}`,
+      countryCode: "EG",
+      phone: `010${String(suffix).slice(-8)}`,
     }),
   });
 
   assert.equal(signup.response.status, 201);
   assert.equal(Object.hasOwn(signup.body, "token"), false);
   assert.equal(signup.body.user.isVerified, false);
+  assert.match(signup.body.otpDebugCode, /^\d{6}$/);
 
   const login = await request(baseUrl, "/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password: "password123" }),
+    body: JSON.stringify({ phone: signup.body.user.phone, password: "password123" }),
   });
   assert.equal(login.response.status, 403);
 
@@ -59,24 +62,26 @@ test("core API integration flow", async (t) => {
     username: `admin${suffix}`.slice(0, 30),
     email: `admin-${suffix}@example.com`,
     password: "password123",
-    phone: `20300${String(suffix).slice(-8)}`,
+    phone: `+2012${String(suffix).slice(-8)}`,
     role: "admin",
     isVerified: true,
   });
   const adminToken = await adminUser.generateAuthToken();
   const adminHeaders = { Authorization: `Bearer ${adminToken}` };
 
-  const verifiedSignupUser = await request(baseUrl, `/api/admin/users/${signup.body.user.id}`, {
-    method: "PATCH",
-    headers: adminHeaders,
-    body: JSON.stringify({ isVerified: true }),
+  const verifiedSignupUser = await request(baseUrl, "/api/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({
+      phone: signup.body.user.phone,
+      code: signup.body.otpDebugCode,
+    }),
   });
   assert.equal(verifiedSignupUser.response.status, 200);
   assert.equal(verifiedSignupUser.body.user.isVerified, true);
 
   const verifiedSignupLogin = await request(baseUrl, "/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password: "password123" }),
+    body: JSON.stringify({ phone: signup.body.user.phone, password: "password123" }),
   });
   assert.equal(verifiedSignupLogin.response.status, 200);
   assert.ok(verifiedSignupLogin.body.token);
@@ -86,7 +91,10 @@ test("core API integration flow", async (t) => {
 
   const phoneLogin = await request(baseUrl, "/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ phone: signup.body.user.phone, password: "password123" }),
+    body: JSON.stringify({
+      phone: signup.body.user.phone.replace(/^20/, "0"),
+      password: "password123",
+    }),
   });
   assert.equal(phoneLogin.response.status, 200);
 
@@ -119,6 +127,49 @@ test("core API integration flow", async (t) => {
   assert.equal(sendWithoutPoints.response.status, 402);
   assert.equal(sendWithoutPoints.body.error, "Insufficient wallet points");
 
+  const defaultSettings = await request(baseUrl, "/api/admin/settings", {
+    headers: adminHeaders,
+  });
+  assert.equal(defaultSettings.response.status, 200);
+  assert.equal(defaultSettings.body.settings.messagePointCost, 1);
+
+  const updatedSettings = await request(baseUrl, "/api/admin/settings", {
+    method: "PATCH",
+    headers: adminHeaders,
+    body: JSON.stringify({
+      signupGiftPoints: 4,
+      messagePointCost: 2,
+      dailyMessageLimit: 3,
+    }),
+  });
+  assert.equal(updatedSettings.response.status, 200);
+  assert.deepEqual(updatedSettings.body.settings, {
+    signupGiftPoints: 4,
+    messagePointCost: 2,
+    dailyMessageLimit: 3,
+  });
+
+  const giftSignup = await request(baseUrl, "/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Gift User ${suffix}`,
+      password: "password123",
+      phone: `+2010${String(suffix + 2).slice(-8)}`,
+    }),
+  });
+  assert.equal(giftSignup.response.status, 201);
+
+  const verifiedGiftUser = await request(baseUrl, "/api/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({
+      phone: `010${String(suffix + 2).slice(-8)}`,
+      countryCode: "EG",
+      code: giftSignup.body.otpDebugCode,
+    }),
+  });
+  assert.equal(verifiedGiftUser.response.status, 200);
+  assert.equal(verifiedGiftUser.body.user.walletPoints, 4);
+
   const creditWallet = await request(baseUrl, `/api/admin/users/${signup.body.user.id}/wallet/credit`, {
     method: "POST",
     headers: adminHeaders,
@@ -148,7 +199,7 @@ test("core API integration flow", async (t) => {
     body: JSON.stringify({
       username: `created${suffix}`.slice(0, 30),
       email: `created-${suffix}@example.com`,
-      phone: `20400${String(suffix).slice(-8)}`,
+      phone: `+2015${String(suffix).slice(-8)}`,
       password: "password123",
       role: "user",
       walletPoints: 7,
@@ -165,7 +216,7 @@ test("core API integration flow", async (t) => {
     body: JSON.stringify({
       username: `blocked${suffix}`.slice(0, 30),
       email: `blocked-${suffix}@example.com`,
-      phone: `20500${String(suffix).slice(-8)}`,
+      phone: `+2011${String(suffix).slice(-8)}`,
       password: "password123",
       role: "user",
       isVerified: false,
@@ -207,14 +258,14 @@ test("core API integration flow", async (t) => {
     method: "POST",
     body: JSON.stringify({
       name: `No Username ${suffix}`,
-      email: `nousername-${suffix}@example.com`,
       password: "password123",
-      phone: `20200${String(suffix).slice(-8)}`,
+      phone: `+2010${String(suffix + 1).slice(-8)}`,
     }),
   });
   assert.equal(registerWithoutUsername.response.status, 201);
   assert.equal(Object.hasOwn(registerWithoutUsername.body, "token"), false);
   assert.equal(registerWithoutUsername.body.user.isVerified, false);
+  assert.match(registerWithoutUsername.body.otpDebugCode, /^\d{6}$/);
 
   const addClient = await request(baseUrl, "/api/clients", {
     method: "POST",

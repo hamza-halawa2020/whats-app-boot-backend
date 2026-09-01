@@ -10,12 +10,14 @@ const { normalizePhoneNumber } = require("../utils/phone");
 const { trace } = require("../utils/trace");
 const { sendTextViaWWebJS } = require("./whatsappDirectSend");
 const {
-  DEFAULT_MESSAGE_POINT_COST,
+  getMessagePointCost,
   debitPoints,
   refundPoints,
   getWalletSummary,
   updateTransactionMessage,
 } = require("./walletService");
+const { getAppSettings } = require("./settingsService");
+const { Op } = require("sequelize");
 
 const inFlightMessageSends = new Map();
 
@@ -88,6 +90,44 @@ const findActiveWhatsAppClient = async (user, requestedSenderPhone = null) => {
 
 const getInFlightSendKey = ({ userId, senderPhone, phone, message }) =>
   [userId, senderPhone || "default", phone, message].join(":");
+
+const getTodayRange = () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+};
+
+const assertDailyMessageLimit = async (userId, additionalMessages = 1) => {
+  const settings = await getAppSettings();
+  const dailyLimit = Number(settings.dailyMessageLimit || 0);
+  if (!dailyLimit) {
+    return { dailyLimit, sentToday: 0 };
+  }
+
+  const { start, end } = getTodayRange();
+  const sentToday = await WhatsAppMessage.count({
+    where: {
+      userId,
+      status: {
+        [Op.in]: ["pending", "sent", "delivered", "read", "played"],
+      },
+      createdAt: {
+        [Op.gte]: start,
+        [Op.lt]: end,
+      },
+    },
+  });
+
+  if (sentToday + additionalMessages > dailyLimit) {
+    const error = new Error(`Daily message limit reached (${dailyLimit} messages).`);
+    error.statusCode = 429;
+    throw error;
+  }
+
+  return { dailyLimit, sentToday };
+};
 
 const sendTextMessage = async (whatsapp, chatId, message) => {
   const normalizeProviderMessageId = (id) => {
@@ -237,7 +277,8 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
     messageLength: message?.length || 0,
   });
 
-  const messageCost = DEFAULT_MESSAGE_POINT_COST;
+  const messageCost = await getMessagePointCost();
+  await assertDailyMessageLimit(user.id);
   const wallet = await getWalletSummary(user.id);
   if (wallet.walletPoints < messageCost) {
     const error = new Error("Insufficient wallet points");
@@ -433,5 +474,6 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
 
 module.exports = {
   normalizePhoneNumber,
+  assertDailyMessageLimit,
   sendWhatsAppMessage,
 };
