@@ -35,6 +35,8 @@ RUN apt-get update \
       xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
+RUN chromium --version
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

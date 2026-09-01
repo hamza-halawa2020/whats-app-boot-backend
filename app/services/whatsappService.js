@@ -7,6 +7,7 @@ const {
   getLocalAuthDataPath,
   getLocalAuthSessionPath,
   getChromeExecutablePath,
+  getChromeExecutableDiagnostics,
   getClientState,
   isWhatsAppClientUsable,
   isPuppeteerTargetClosedError,
@@ -209,6 +210,7 @@ const initializeWhatsApp = async (userId, phone) => {
     sessionId,
     localAuthClientId: getLocalAuthClientId(sessionId),
     chromeExecutablePath: getChromeExecutablePath() || null,
+    chromeExecutableDiagnostics: getChromeExecutableDiagnostics(),
   });
 
   const savedSession = await WhatsAppSession.findOne({
@@ -236,6 +238,11 @@ const initializeWhatsApp = async (userId, phone) => {
         "--disable-background-networking",
         "--disable-component-update",
         "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-extensions",
+        "--disable-software-rasterizer",
+        "--no-first-run",
+        "--no-zygote",
       ],
     },
   });
@@ -437,6 +444,8 @@ const initializeWhatsApp = async (userId, phone) => {
       phone,
       sessionId,
       error: err.message,
+      chromeExecutablePath: getChromeExecutablePath() || null,
+      chromeExecutableDiagnostics: getChromeExecutableDiagnostics(),
     }, "error");
     if (err.message?.includes("Failed to launch the browser process")) {
       err.statusCode = 400;
