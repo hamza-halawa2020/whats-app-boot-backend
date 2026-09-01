@@ -7,6 +7,7 @@ const operationsController = require("../controllers/operationsController");
 router.get("/health", operationsController.health);
 router.get("/usage", auth, operationsController.usage);
 router.get("/rate-limits", auth, operationsController.rateLimits);
+router.get("/admin/chrome-diagnostics", auth, admin, operationsController.chromeDiagnostics);
 router.get("/admin/dashboard", auth, admin, operationsController.dashboard);
 router.get("/admin/audit-logs", auth, admin, operationsController.auditLogs);
 router.get("/admin/sessions", auth, admin, operationsController.adminSessions);

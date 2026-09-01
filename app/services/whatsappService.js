@@ -448,9 +448,13 @@ const initializeWhatsApp = async (userId, phone) => {
       chromeExecutableDiagnostics: getChromeExecutableDiagnostics(),
     }, "error");
     if (err.message?.includes("Failed to launch the browser process")) {
+      const chromePath = getChromeExecutablePath();
+      const originalMessage = err.message.split("\n").slice(0, 3).join(" ");
       err.statusCode = 400;
       err.message =
-        "Chrome or Edge could not be launched for WhatsApp. Set CHROME_EXECUTABLE_PATH in .env.";
+        chromePath
+          ? `Chrome exists at ${chromePath}, but could not be launched. Check Docker permissions and Chromium dependencies. Original error: ${originalMessage}`
+          : "Chrome or Edge could not be found for WhatsApp. Set CHROME_EXECUTABLE_PATH=/usr/bin/chromium and rebuild with the Dockerfile.";
     }
     throw err;
   } finally {

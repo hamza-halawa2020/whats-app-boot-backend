@@ -45,8 +45,6 @@ COPY . .
 RUN mkdir -p /app/.wwebjs_auth /app/.wwebjs_cache \
     && chown -R node:node /app
 
-USER node
-
 VOLUME ["/app/.wwebjs_auth", "/app/.wwebjs_cache"]
 
 EXPOSE 3000

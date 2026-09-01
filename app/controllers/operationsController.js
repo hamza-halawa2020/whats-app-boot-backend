@@ -7,6 +7,11 @@ const ApiToken = require("../models/ApiToken");
 const AuditLog = require("../models/AuditLog");
 const ScheduledMessage = require("../models/ScheduledMessage");
 const { deleteWhatsAppClient } = require("../services/whatsappService");
+const {
+  getChromeExecutablePath,
+  getChromeExecutableDiagnostics,
+  getLocalAuthDataPath,
+} = require("../services/whatsappRuntimeUtils");
 const { sendError } = require("../utils/responses");
 const logger = require("../utils/logger");
 const { trace } = require("../utils/trace");
@@ -169,6 +174,18 @@ exports.rateLimits = (req, res) => {
         max: 100,
       },
     },
+  });
+};
+
+exports.chromeDiagnostics = (req, res) => {
+  return res.json({
+    success: true,
+    platform: process.platform,
+    user: process.getuid ? process.getuid() : null,
+    chromeExecutablePath: getChromeExecutablePath() || null,
+    chromeExecutableDiagnostics: getChromeExecutableDiagnostics(),
+    wwebjsAuthPath: getLocalAuthDataPath(),
+    envChromeExecutablePath: process.env.CHROME_EXECUTABLE_PATH || null,
   });
 };
 
