@@ -249,7 +249,7 @@ const getOtpPhoneCandidates = (phone, countryCode = null) => {
   return [...candidates];
 };
 
-const verifyUserOtp = async ({ phone, code, countryCode = null }) => {
+const findUserByPhoneInput = async (phone, countryCode = null) => {
   const phoneCandidates = getOtpPhoneCandidates(phone, countryCode);
   let user = await User.findOne({
     where: {
@@ -271,17 +271,11 @@ const verifyUserOtp = async ({ phone, code, countryCode = null }) => {
     });
   }
 
-  if (!user) {
-    const error = new Error("Invalid verification code");
-    error.statusCode = 400;
-    throw error;
-  }
+  return user;
+};
 
-  if (user.isVerified) {
-    return { user, alreadyVerified: true };
-  }
-
-  const otp = await UserOtp.findOne({
+const getActiveOtpForUser = async (user) =>
+  UserOtp.findOne({
     where: {
       userId: user.id,
       phone: user.phone,
@@ -290,6 +284,7 @@ const verifyUserOtp = async ({ phone, code, countryCode = null }) => {
     order: [["createdAt", "DESC"]],
   });
 
+const assertValidOtp = async (otp, code) => {
   if (!otp || otp.expiresAt.getTime() < Date.now()) {
     const error = new Error("Verification code expired. Request a new code.");
     error.statusCode = 400;
@@ -310,6 +305,23 @@ const verifyUserOtp = async ({ phone, code, countryCode = null }) => {
     error.statusCode = 400;
     throw error;
   }
+};
+
+const verifyUserOtp = async ({ phone, code, countryCode = null }) => {
+  const user = await findUserByPhoneInput(phone, countryCode);
+
+  if (!user) {
+    const error = new Error("Invalid verification code");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (user.isVerified) {
+    return { user, alreadyVerified: true };
+  }
+
+  const otp = await getActiveOtpForUser(user);
+  await assertValidOtp(otp, code);
 
   otp.usedAt = new Date();
   await otp.save();
@@ -322,7 +334,43 @@ const verifyUserOtp = async ({ phone, code, countryCode = null }) => {
   return { user, alreadyVerified: false };
 };
 
+const requestPasswordResetOtp = async ({ phone, countryCode = null }) => {
+  const user = await findUserByPhoneInput(phone, countryCode);
+
+  if (!user || !user.isVerified) {
+    const error = new Error("No verified account was found for this phone");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return createAndSendOtp(user);
+};
+
+const resetPasswordWithOtp = async ({ phone, countryCode = null, code, password }) => {
+  const user = await findUserByPhoneInput(phone, countryCode);
+
+  if (!user || !user.isVerified) {
+    const error = new Error("Invalid verification code");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const otp = await getActiveOtpForUser(user);
+  await assertValidOtp(otp, code);
+
+  otp.usedAt = new Date();
+  await otp.save();
+
+  user.password = password;
+  user.tokens = [];
+  await user.save();
+
+  return { user };
+};
+
 module.exports = {
   createAndSendOtp,
+  requestPasswordResetOtp,
+  resetPasswordWithOtp,
   verifyUserOtp,
 };

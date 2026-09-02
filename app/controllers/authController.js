@@ -1,7 +1,12 @@
 const { authenticateUser } = require("../services/authService");
 const User = require("../models/User");
 const { Op } = require("sequelize");
-const { createAndSendOtp, verifyUserOtp } = require("../services/otpService");
+const {
+  createAndSendOtp,
+  requestPasswordResetOtp,
+  resetPasswordWithOtp,
+  verifyUserOtp,
+} = require("../services/otpService");
 const logger = require("../utils/logger");
 const { sendError } = require("../utils/responses");
 const { trace } = require("../utils/trace");
@@ -179,6 +184,52 @@ exports.resendOtp = async (req, res) => {
   }
 };
 
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { phone, countryCode } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        error: "WhatsApp phone is required",
+      });
+    }
+
+    const otpResult = await requestPasswordResetOtp({ phone, countryCode });
+
+    return res.json({
+      success: true,
+      message: "Password reset OTP was sent to your WhatsApp.",
+      otpExpiresAt: otpResult.otp.expiresAt,
+      otpDebugCode: otpResult.debugCode,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  try {
+    const { phone, countryCode, code, password } = req.body;
+
+    if (!phone || !code || !/^\d{6}$/.test(String(code)) || !password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: "Phone, 6-digit code, and a password of at least 6 characters are required",
+      });
+    }
+
+    await resetPasswordWithOtp({ phone, countryCode, code, password });
+
+    return res.json({
+      success: true,
+      message: "Password reset successfully. You can sign in now.",
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
 exports.login = async (req, res) => {
   try {
     const { email, phone, password } = req.body;
@@ -244,4 +295,78 @@ exports.me = async (req, res) => {
     success: true,
     user: req.user,
   });
+};
+
+exports.updateMe = async (req, res) => {
+  try {
+    const allowedFields = ["username", "email", "password"];
+    const updates = {};
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (updates.username !== undefined) {
+      updates.username = String(updates.username || "").trim();
+      if (updates.username.length < 3 || updates.username.length > 30) {
+        return res.status(400).json({
+          success: false,
+          error: "Username must be between 3 and 30 characters",
+        });
+      }
+
+      const existingUsername = await User.findOne({
+        where: {
+          username: updates.username,
+          id: { [Op.ne]: req.user.id },
+        },
+      });
+
+      if (existingUsername) {
+        return res.status(409).json({
+          success: false,
+          error: "Username is already in use",
+        });
+      }
+    }
+
+    if (updates.email !== undefined) {
+      updates.email = updates.email ? String(updates.email).trim().toLowerCase() : null;
+      if (updates.email) {
+        const existingEmail = await User.findOne({
+          where: {
+            email: updates.email,
+            id: { [Op.ne]: req.user.id },
+          },
+        });
+
+        if (existingEmail) {
+          return res.status(409).json({
+            success: false,
+            error: "Email is already in use",
+          });
+        }
+      }
+    }
+
+    if (updates.password !== undefined && String(updates.password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: "Password must be at least 6 characters",
+      });
+    }
+
+    Object.assign(req.user, updates);
+    await req.user.save();
+
+    return res.json({
+      success: true,
+      message: "Profile updated successfully",
+      user: req.user,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
 };

@@ -98,6 +98,57 @@ test("core API integration flow", async (t) => {
   });
   assert.equal(phoneLogin.response.status, 200);
 
+  const profileUpdate = await request(baseUrl, "/api/auth/me", {
+    method: "PATCH",
+    headers: authHeaders,
+    body: JSON.stringify({
+      username: `profile${String(suffix).slice(-8)}`.slice(0, 30),
+      email: `profile-${suffix}@example.com`,
+    }),
+  });
+  assert.equal(profileUpdate.response.status, 200);
+  assert.equal(profileUpdate.body.user.email, `profile-${suffix}@example.com`);
+
+  const forgotPassword = await request(baseUrl, "/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({
+      phone: signup.body.user.phone.replace(/^20/, "0"),
+      countryCode: "EG",
+    }),
+  });
+  assert.equal(forgotPassword.response.status, 200);
+  assert.match(forgotPassword.body.otpDebugCode, /^\d{6}$/);
+
+  const resetPassword = await request(baseUrl, "/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({
+      phone: signup.body.user.phone.replace(/^20/, "0"),
+      countryCode: "EG",
+      code: forgotPassword.body.otpDebugCode,
+      password: "newpassword123",
+    }),
+  });
+  assert.equal(resetPassword.response.status, 200);
+
+  const oldPasswordLogin = await request(baseUrl, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      phone: signup.body.user.phone,
+      password: "password123",
+    }),
+  });
+  assert.equal(oldPasswordLogin.response.status, 401);
+
+  const newPasswordLogin = await request(baseUrl, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      phone: signup.body.user.phone,
+      password: "newpassword123",
+    }),
+  });
+  assert.equal(newPasswordLogin.response.status, 200);
+  authHeaders.Authorization = `Bearer ${newPasswordLogin.body.token}`;
+
   const me = await request(baseUrl, "/api/auth/me", {
     headers: authHeaders,
   });

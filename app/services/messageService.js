@@ -2,6 +2,7 @@ const {
   getWhatsAppClient,
   prepareWhatsAppForMessage,
   getSessionId,
+  waitForWhatsAppReady,
 } = require("./whatsappService");
 const WhatsAppMessage = require("../models/WhatsAppMessage");
 const WhatsAppSession = require("../models/WhatsAppSession");
@@ -21,9 +22,17 @@ const { Op } = require("sequelize");
 
 const inFlightMessageSends = new Map();
 
+const normalizeStoredPhoneDigits = (phone) =>
+  String(phone || "").trim().replace(/[^0-9]/g, "");
+
 const addCandidatePhone = (phones, phone) => {
   if (!phone) {
     return;
+  }
+
+  const storedDigits = normalizeStoredPhoneDigits(phone);
+  if (storedDigits && !phones.includes(storedDigits)) {
+    phones.push(storedDigits);
   }
 
   try {
@@ -32,10 +41,11 @@ const addCandidatePhone = (phones, phone) => {
       phones.push(normalizedPhone);
     }
   } catch (error) {
-    trace("message.service.sender_candidate.invalid", {
+    trace("message.service.sender_candidate.normalize_skipped", {
       phone,
       error: error.message,
-    }, "warn");
+      storedDigits: storedDigits || null,
+    });
   }
 };
 
@@ -69,7 +79,7 @@ const findActiveWhatsAppClient = async (user, requestedSenderPhone = null) => {
 
   for (const senderPhone of candidatePhones) {
     const sessionId = getSessionId(user.id, senderPhone);
-    const whatsapp = getWhatsAppClient(user.id, senderPhone);
+    let whatsapp = getWhatsAppClient(user.id, senderPhone);
 
     trace("message.service.sender_client.lookup", {
       userId: user.id,
@@ -81,6 +91,27 @@ const findActiveWhatsAppClient = async (user, requestedSenderPhone = null) => {
     });
 
     if (whatsapp) {
+      return { whatsapp, senderPhone, sessionId, candidatePhones };
+    }
+
+    const savedSession = await WhatsAppSession.findOne({
+      where: {
+        userId: user.id,
+        sessionId,
+        status: {
+          [Op.in]: ["ready", "authenticated"],
+        },
+      },
+    });
+
+    if (savedSession) {
+      trace("message.service.sender_client.restore", {
+        userId: user.id,
+        senderPhone,
+        sessionId,
+        dbStatus: savedSession.status,
+      });
+      whatsapp = await waitForWhatsAppReady(user.id, senderPhone);
       return { whatsapp, senderPhone, sessionId, candidatePhones };
     }
   }
