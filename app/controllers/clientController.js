@@ -70,14 +70,14 @@ exports.addClient = async (req, res) => {
 // Get All Clients for Current User
 exports.getAllClients = async (req, res) => {
   try {
-    const page = parseInt(req.query.page);
-    const limit = parseInt(req.query.limit);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const where = { addedBy: req.user.id };
     trace("clients.list.request", {
       requestId: req.requestId || null,
       userId: req.user.id,
-      page: page || null,
-      limit: limit || null,
+      page,
+      limit,
       segment: req.query.segment || null,
     });
 
@@ -85,26 +85,10 @@ exports.getAllClients = async (req, res) => {
       where.segment = req.query.segment;
     }
 
-    if (!limit || limit === 0) {
-      const clients = await Client.findAll({ where });
-      trace("clients.list.response", {
-        requestId: req.requestId || null,
-        userId: req.user.id,
-        total: clients.length,
-        paginated: false,
-      });
-      return res.status(200).json({
-        clients,
-        total: clients.length,
-        page: 1,
-        totalPages: 1,
-      });
-    }
-
     const skip = (page - 1) * limit;
 
     const [clients, total] = await Promise.all([
-      Client.findAll({ where, offset: skip, limit }),
+      Client.findAll({ where, order: [["createdAt", "DESC"]], offset: skip, limit }),
       Client.count({ where }),
     ]);
     trace("clients.list.response", {

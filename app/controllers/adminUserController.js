@@ -1,4 +1,6 @@
 const User = require("../models/User");
+const PointPackage = require("../models/PointPackage");
+const PointPurchase = require("../models/PointPurchase");
 const { creditPoints, debitPoints, getWalletTransactions } = require("../services/walletService");
 const { sendError } = require("../utils/responses");
 const { normalizePhoneNumber } = require("../utils/phone");
@@ -14,9 +16,39 @@ const buildPublicUser = (user) => ({
   createdAt: user.createdAt,
 });
 
+exports.getAnalytics = async (req, res) => {
+  try {
+    const [totalUsers, verifiedUsers, adminUsers, pendingPayments, activePackages, walletPoints] =
+      await Promise.all([
+        User.count(),
+        User.count({ where: { isVerified: true } }),
+        User.count({ where: { role: "admin" } }),
+        PointPurchase.count({ where: { status: "pending" } }),
+        PointPackage.count({ where: { isActive: true } }),
+        User.sum("walletPoints"),
+      ]);
+
+    return res.json({
+      success: true,
+      analytics: {
+        totalUsers,
+        verifiedUsers,
+        adminUsers,
+        pendingPayments,
+        activePackages,
+        walletPoints: Number(walletPoints || 0),
+      },
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
 exports.listUsers = async (req, res) => {
   try {
-    const users = await User.findAll({
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
+    const { rows, count } = await User.findAndCountAll({
       attributes: [
         "id",
         "username",
@@ -28,11 +60,16 @@ exports.listUsers = async (req, res) => {
         "createdAt",
       ],
       order: [["createdAt", "DESC"]],
+      offset: (page - 1) * limit,
+      limit,
     });
 
     return res.json({
       success: true,
-      users: users.map(buildPublicUser),
+      users: rows.map(buildPublicUser),
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
     });
   } catch (error) {
     return sendError(res, error);

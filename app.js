@@ -36,9 +36,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+const requestBodyLimit = process.env.REQUEST_BODY_LIMIT || "25mb";
+
+app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
+app.use(express.json({ limit: requestBodyLimit }));
 app.use((error, req, res, next) => {
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json({
+      success: false,
+      error: `Request body is too large. Upload a smaller file or increase REQUEST_BODY_LIMIT above ${requestBodyLimit}.`,
+    });
+  }
+
   if (error instanceof SyntaxError && error.status === 400 && "body" in error) {
     return res.status(400).json({
       success: false,
@@ -61,6 +70,7 @@ const externalRoutes = require("./app/routes/external");
 const operationsRoutes = require("./app/routes/operations");
 const walletRoutes = require("./app/routes/wallet");
 const adminUsersRoutes = require("./app/routes/adminUsers");
+const adminPaymentsRoutes = require("./app/routes/adminPayments");
 const settingsRoutes = require("./app/routes/settings");
 const appSettingsRoutes = require("./app/routes/appSettings");
 
@@ -77,6 +87,7 @@ app.use("/api/tokens", tokensRoutes);
 app.use("/api/external", messageLimiter, externalRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/admin/users", adminUsersRoutes);
+app.use("/api/admin/payments", adminPaymentsRoutes);
 app.use("/api/admin/settings", settingsRoutes);
 app.use("/api/settings", appSettingsRoutes);
 

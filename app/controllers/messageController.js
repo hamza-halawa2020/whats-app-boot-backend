@@ -761,7 +761,7 @@ exports.sendRandomMessages = async (req, res) => {
 exports.getMessageHistory = async (req, res) => {
   const userId = req.user.id;
   const page = Math.max(parseInt(req.query.page || "1", 10), 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || "10", 10), 1), 100);
   const where = { userId };
 
   if (req.query.phone) {

@@ -158,9 +158,9 @@ const getWalletSummary = async (userId) => {
   };
 };
 
-const getWalletTransactions = async ({ userId, page = 1, limit = 20 }) => {
+const getWalletTransactions = async ({ userId, page = 1, limit = 10 }) => {
   const safePage = Math.max(parseInt(page, 10) || 1, 1);
-  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
 
   const { rows, count } = await WalletTransaction.findAndCountAll({
     where: { userId },
@@ -184,6 +184,7 @@ module.exports = {
     return settings.messagePointCost;
   },
   creditPoints,
+  createWalletTransaction,
   debitPoints,
   refundPoints,
   updateTransactionMessage,

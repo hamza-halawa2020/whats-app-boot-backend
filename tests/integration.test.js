@@ -191,6 +191,8 @@ test("core API integration flow", async (t) => {
       signupGiftPoints: 4,
       messagePointCost: 2,
       dailyMessageLimit: 3,
+      pointUnitPrice: 0.5,
+      pointCurrency: "EGP",
     }),
   });
   assert.equal(updatedSettings.response.status, 200);
@@ -198,6 +200,8 @@ test("core API integration flow", async (t) => {
     signupGiftPoints: 4,
     messagePointCost: 2,
     dailyMessageLimit: 3,
+    pointUnitPrice: 0.5,
+    pointCurrency: "EGP",
   });
 
   const giftSignup = await request(baseUrl, "/api/auth/register", {
@@ -243,6 +247,105 @@ test("core API integration flow", async (t) => {
   assert.equal(walletAfterAdminActions.response.status, 200);
   assert.equal(walletAfterAdminActions.body.wallet.walletPoints, 3);
   assert.equal(walletAfterAdminActions.body.transactions.length, 2);
+
+  const createdPackage = await request(baseUrl, "/api/admin/payments/packages", {
+    method: "POST",
+    headers: adminHeaders,
+    body: JSON.stringify({
+      name: `Starter ${suffix}`,
+      points: 10,
+      price: 1,
+      currency: "EGP",
+      isActive: true,
+    }),
+  });
+  assert.equal(createdPackage.response.status, 201);
+  assert.equal(createdPackage.body.package.points, 10);
+
+  const pointPackages = await request(baseUrl, "/api/wallet/packages", {
+    headers: authHeaders,
+  });
+  assert.equal(pointPackages.response.status, 200);
+  assert.equal(
+    pointPackages.body.packages.some((item) => item.id === createdPackage.body.package.id),
+    true
+  );
+
+  const pointPurchase = await request(baseUrl, "/api/wallet/purchases", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      packageId: createdPackage.body.package.id,
+      paymentMethod: "manual",
+      proofReference: "receipt-1",
+      proofFile: {
+        name: "receipt.pdf",
+        type: "application/pdf",
+        data: Buffer.from("%PDF-1.4 test receipt").toString("base64"),
+      },
+      userNote: "paid manually",
+    }),
+  });
+  assert.equal(pointPurchase.response.status, 201);
+  assert.equal(pointPurchase.body.purchase.status, "pending");
+  assert.equal(pointPurchase.body.purchase.points, 10);
+
+  const refusedPurchase = await request(
+    baseUrl,
+    `/api/admin/payments/purchases/${pointPurchase.body.purchase.id}/review`,
+    {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        status: "refused",
+        adminNote: "Receipt number is missing",
+      }),
+    }
+  );
+  assert.equal(refusedPurchase.response.status, 200);
+  assert.equal(refusedPurchase.body.purchase.status, "refused");
+
+  const editedPurchase = await request(
+    baseUrl,
+    `/api/wallet/purchases/${pointPurchase.body.purchase.id}`,
+    {
+      method: "PATCH",
+      headers: authHeaders,
+      body: JSON.stringify({
+        proofReference: "receipt-1-fixed",
+        proofFile: {
+          name: "receipt-fixed.png",
+          type: "image/png",
+          data: Buffer.from("fake png receipt").toString("base64"),
+        },
+        userNote: "added receipt number",
+      }),
+    }
+  );
+  assert.equal(editedPurchase.response.status, 200);
+  assert.equal(editedPurchase.body.purchase.status, "pending");
+
+  const approvedPurchase = await request(
+    baseUrl,
+    `/api/admin/payments/purchases/${pointPurchase.body.purchase.id}/review`,
+    {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        status: "approved",
+        adminNote: "Receipt confirmed",
+      }),
+    }
+  );
+  assert.equal(approvedPurchase.response.status, 200);
+  assert.equal(approvedPurchase.body.purchase.status, "approved");
+  assert.ok(approvedPurchase.body.purchase.walletTransactionId);
+
+  const walletAfterPurchase = await request(baseUrl, "/api/wallet", {
+    headers: authHeaders,
+  });
+  assert.equal(walletAfterPurchase.response.status, 200);
+  assert.equal(walletAfterPurchase.body.wallet.walletPoints, 13);
 
   const adminCreatedUser = await request(baseUrl, "/api/admin/users", {
     method: "POST",
@@ -295,6 +398,15 @@ test("core API integration flow", async (t) => {
   });
   assert.equal(updatedUser.response.status, 200);
   assert.equal(updatedUser.body.user.isVerified, true);
+
+  const adminAnalytics = await request(baseUrl, "/api/admin/users/analytics", {
+    headers: adminHeaders,
+  });
+  assert.equal(adminAnalytics.response.status, 200);
+  assert.ok(adminAnalytics.body.analytics.totalUsers >= 4);
+  assert.ok(adminAnalytics.body.analytics.walletPoints >= 24);
+  assert.ok(adminAnalytics.body.analytics.activePackages >= 1);
+  assert.equal(typeof adminAnalytics.body.analytics.pendingPayments, "number");
 
   const verifiedLogin = await request(baseUrl, "/api/auth/login", {
     method: "POST",

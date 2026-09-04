@@ -76,6 +76,61 @@ const ensureSystemSettingsTable = async (sequelize) => {
   `);
 };
 
+const ensurePointPackagesTable = async (sequelize) => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS point_packages (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(80) NOT NULL,
+      points INT UNSIGNED NOT NULL,
+      price DECIMAL(12,2) NOT NULL,
+      currency VARCHAR(10) NOT NULL DEFAULT 'EGP',
+      isActive TINYINT(1) NOT NULL DEFAULT 1,
+      createdBy INT UNSIGNED NULL,
+      updatedBy INT UNSIGNED NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX point_packages_active (isActive)
+    )
+  `);
+};
+
+const ensurePointPurchasesTable = async (sequelize) => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS point_purchases (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      userId INT UNSIGNED NOT NULL,
+      packageId INT UNSIGNED NULL,
+      paymentMethod ENUM('manual','automatic') NOT NULL,
+      status ENUM('pending','approved','refused','canceled') NOT NULL DEFAULT 'pending',
+      points INT UNSIGNED NOT NULL,
+      amount DECIMAL(12,2) NOT NULL,
+      currency VARCHAR(10) NOT NULL DEFAULT 'EGP',
+      proofReference VARCHAR(255) NULL,
+      proofFileName VARCHAR(255) NULL,
+      proofFileType VARCHAR(80) NULL,
+      proofFilePath VARCHAR(500) NULL,
+      userNote TEXT NULL,
+      adminNote TEXT NULL,
+      reviewedBy INT UNSIGNED NULL,
+      reviewedAt DATETIME NULL,
+      walletTransactionId INT UNSIGNED NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      INDEX point_purchases_user_created (userId, createdAt),
+      INDEX point_purchases_status_created (status, createdAt),
+      INDEX point_purchases_package (packageId),
+      INDEX point_purchases_reviewer (reviewedBy),
+      INDEX point_purchases_wallet_transaction (walletTransactionId)
+    )
+  `);
+
+  await ensureColumn(sequelize, "point_purchases", "proofFileName", "VARCHAR(255) NULL");
+  await ensureColumn(sequelize, "point_purchases", "proofFileType", "VARCHAR(80) NULL");
+  await ensureColumn(sequelize, "point_purchases", "proofFilePath", "VARCHAR(500) NULL");
+};
+
 const ensureSchemaUpdates = async (sequelize) => {
   const columns = [
     ["users", "walletPoints", "INT UNSIGNED NOT NULL DEFAULT 0"],
@@ -108,6 +163,8 @@ const ensureSchemaUpdates = async (sequelize) => {
   await ensureWalletTransactionsTable(sequelize);
   await ensureUserOtpsTable(sequelize);
   await ensureSystemSettingsTable(sequelize);
+  await ensurePointPackagesTable(sequelize);
+  await ensurePointPurchasesTable(sequelize);
 };
 
 module.exports = ensureSchemaUpdates;

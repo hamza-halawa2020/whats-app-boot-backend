@@ -4,6 +4,8 @@ const DEFAULT_SETTINGS = {
   signupGiftPoints: Number(process.env.SIGNUP_GIFT_POINTS || 0),
   messagePointCost: Number(process.env.MESSAGE_POINT_COST || 1),
   dailyMessageLimit: Number(process.env.DAILY_MESSAGE_LIMIT || 0),
+  pointUnitPrice: Number(process.env.POINT_UNIT_PRICE || 1),
+  pointCurrency: process.env.POINT_CURRENCY || "EGP",
 };
 
 const SETTING_KEY = "app";
@@ -15,6 +17,27 @@ const normalizeIntegerSetting = (value, fallback, { min = 0 } = {}) => {
   }
 
   return parsed;
+};
+
+const normalizePriceSetting = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Number(parsed.toFixed(2));
+};
+
+const normalizeCurrency = (value, fallback = "EGP") => {
+  const normalized = String(value || fallback)
+    .trim()
+    .toUpperCase();
+
+  if (!/^[A-Z]{3,10}$/.test(normalized)) {
+    return fallback;
+  }
+
+  return normalized;
 };
 
 const normalizeSettings = (settings = {}) => ({
@@ -33,6 +56,11 @@ const normalizeSettings = (settings = {}) => ({
     DEFAULT_SETTINGS.dailyMessageLimit,
     { min: 0 }
   ),
+  pointUnitPrice: normalizePriceSetting(
+    settings.pointUnitPrice,
+    DEFAULT_SETTINGS.pointUnitPrice
+  ),
+  pointCurrency: normalizeCurrency(settings.pointCurrency, DEFAULT_SETTINGS.pointCurrency),
 });
 
 const getAppSettings = async () => {

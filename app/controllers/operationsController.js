@@ -137,7 +137,7 @@ exports.usage = async (req, res) => {
 
 exports.auditLogs = async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
+    const limit = Math.min(parseInt(req.query.limit || "10", 10), 200);
     trace("operations.audit_logs.request", {
       requestId: req.requestId || null,
       userId: req.user?.id || null,
@@ -241,7 +241,7 @@ exports.chromeDiagnostics = async (req, res) => {
 
 exports.adminSessions = async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit || "100", 10), 200);
+    const limit = Math.min(parseInt(req.query.limit || "10", 10), 200);
     trace("operations.admin_sessions.request", {
       requestId: req.requestId || null,
       userId: req.user?.id || null,

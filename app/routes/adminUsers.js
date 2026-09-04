@@ -5,6 +5,7 @@ const admin = require("../middlewares/admin");
 const adminUserController = require("../controllers/adminUserController");
 
 router.use(auth, admin);
+router.get("/analytics", adminUserController.getAnalytics);
 router.get("/", adminUserController.listUsers);
 router.post("/", adminUserController.createUser);
 router.patch("/:id", adminUserController.updateUser);
