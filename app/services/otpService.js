@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
 const User = require("../models/User");
+const RefreshToken = require("../models/RefreshToken");
 const UserOtp = require("../models/UserOtp");
 const WalletTransaction = require("../models/WalletTransaction");
 const WhatsAppSession = require("../models/WhatsAppSession");
@@ -362,8 +363,11 @@ const resetPasswordWithOtp = async ({ phone, countryCode = null, code, password 
   await otp.save();
 
   user.password = password;
-  user.tokens = [];
   await user.save();
+  await RefreshToken.update(
+    { revokedAt: new Date() },
+    { where: { userId: user.id, revokedAt: null } }
+  );
 
   return { user };
 };

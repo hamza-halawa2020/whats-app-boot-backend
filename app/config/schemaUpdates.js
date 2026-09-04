@@ -131,6 +131,23 @@ const ensurePointPurchasesTable = async (sequelize) => {
   await ensureColumn(sequelize, "point_purchases", "proofFilePath", "VARCHAR(500) NULL");
 };
 
+const ensureRefreshTokensTable = async (sequelize) => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      userId INT UNSIGNED NOT NULL,
+      tokenHash VARCHAR(64) NOT NULL,
+      expiresAt DATETIME NOT NULL,
+      revokedAt DATETIME NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE INDEX refresh_tokens_hash_unique (tokenHash),
+      INDEX refresh_tokens_user_active (userId, revokedAt, expiresAt)
+    )
+  `);
+};
+
 const ensureSchemaUpdates = async (sequelize) => {
   const columns = [
     ["users", "walletPoints", "INT UNSIGNED NOT NULL DEFAULT 0"],
@@ -165,6 +182,7 @@ const ensureSchemaUpdates = async (sequelize) => {
   await ensureSystemSettingsTable(sequelize);
   await ensurePointPackagesTable(sequelize);
   await ensurePointPurchasesTable(sequelize);
+  await ensureRefreshTokensTable(sequelize);
 };
 
 module.exports = ensureSchemaUpdates;

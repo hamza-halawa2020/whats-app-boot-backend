@@ -85,8 +85,10 @@ test("core API integration flow", async (t) => {
   });
   assert.equal(verifiedSignupLogin.response.status, 200);
   assert.ok(verifiedSignupLogin.body.token);
+  assert.ok(verifiedSignupLogin.body.refreshToken);
 
   const token = verifiedSignupLogin.body.token;
+  const firstRefreshToken = verifiedSignupLogin.body.refreshToken;
   const authHeaders = { Authorization: `Bearer ${token}` };
 
   const phoneLogin = await request(baseUrl, "/api/auth/login", {
@@ -130,6 +132,12 @@ test("core API integration flow", async (t) => {
   });
   assert.equal(resetPassword.response.status, 200);
 
+  const revokedRefreshToken = await request(baseUrl, "/api/auth/refresh-token", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken: firstRefreshToken }),
+  });
+  assert.equal(revokedRefreshToken.response.status, 401);
+
   const oldPasswordLogin = await request(baseUrl, "/api/auth/login", {
     method: "POST",
     body: JSON.stringify({
@@ -147,7 +155,23 @@ test("core API integration flow", async (t) => {
     }),
   });
   assert.equal(newPasswordLogin.response.status, 200);
+  assert.ok(newPasswordLogin.body.refreshToken);
   authHeaders.Authorization = `Bearer ${newPasswordLogin.body.token}`;
+
+  const refreshedLogin = await request(baseUrl, "/api/auth/refresh-token", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken: newPasswordLogin.body.refreshToken }),
+  });
+  assert.equal(refreshedLogin.response.status, 200);
+  assert.ok(refreshedLogin.body.token);
+  assert.ok(refreshedLogin.body.refreshToken);
+  authHeaders.Authorization = `Bearer ${refreshedLogin.body.token}`;
+
+  const rotatedRefreshToken = await request(baseUrl, "/api/auth/refresh-token", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken: newPasswordLogin.body.refreshToken }),
+  });
+  assert.equal(rotatedRefreshToken.response.status, 401);
 
   const me = await request(baseUrl, "/api/auth/me", {
     headers: authHeaders,

@@ -1,4 +1,9 @@
-const { authenticateUser } = require("../services/authService");
+const {
+  authenticateUser,
+  issueAuthTokens,
+  revokeRefreshToken,
+  rotateRefreshToken,
+} = require("../services/authService");
 const User = require("../models/User");
 const { Op } = require("sequelize");
 const {
@@ -245,13 +250,13 @@ exports.login = async (req, res) => {
       userId: user.id,
       phone: user.phone || null,
     });
-    const token = await user.generateAuthToken();
+    const { token, refreshToken } = await issueAuthTokens(user);
     trace("auth.login.token_created", {
       requestId: req.requestId || null,
       userId: user.id,
     });
 
-    res.json({ user, token });
+    res.json({ user, token, refreshToken });
   } catch (error) {
     trace("auth.login.error", {
       requestId: req.requestId || null,
@@ -264,16 +269,36 @@ exports.login = async (req, res) => {
   }
 };
 
+exports.refreshToken = async (req, res) => {
+  try {
+    const refreshToken = req.body.refreshToken;
+    if (!refreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: "Refresh token is required",
+      });
+    }
+
+    const result = await rotateRefreshToken(refreshToken);
+
+    return res.json({
+      success: true,
+      user: result.user,
+      token: result.token,
+      refreshToken: result.refreshToken,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
 exports.logout = async (req, res) => {
   try {
     trace("auth.logout.request", {
       requestId: req.requestId || null,
       userId: req.user?.id || null,
     });
-    req.user.tokens = (req.user.tokens || []).filter(
-      (tokenObj) => tokenObj.token !== req.token
-    );
-    await req.user.save();
+    await revokeRefreshToken(req.body.refreshToken);
     trace("auth.logout.success", {
       requestId: req.requestId || null,
       userId: req.user?.id || null,
