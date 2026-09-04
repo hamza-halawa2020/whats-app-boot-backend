@@ -1,4 +1,5 @@
 const { getWalletSummary, getWalletTransactions } = require("../services/walletService");
+const { getDailyMessageUsage } = require("../services/messageService");
 const {
   createPurchase,
   listPackages,
@@ -38,6 +39,27 @@ exports.getTransactions = async (req, res) => {
     return res.json({
       success: true,
       ...history,
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.getExternalWallet = async (req, res) => {
+  try {
+    const [summary, dailyUsage] = await Promise.all([
+      getWalletSummary(req.user.id),
+      getDailyMessageUsage(req.user.id),
+    ]);
+
+    return res.json({
+      success: true,
+      wallet: summary,
+      walletPoints: summary.walletPoints,
+      remainingPoints: summary.walletPoints,
+      dailyLimit: dailyUsage.dailyLimit,
+      sentToday: dailyUsage.sentToday,
+      remainingDailyLimit: dailyUsage.remainingDailyLimit,
     });
   } catch (error) {
     return sendError(res, error);

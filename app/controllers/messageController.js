@@ -242,6 +242,8 @@ exports.sendMessageWithApiToken = async (req, res) => {
       messageId: result.messageId,
       providerMessageId: result.providerMessageId,
       status: result.status,
+      pointsCharged: result.pointsCharged,
+      remainingPoints: result.remainingPoints,
     });
     trace("message.external_send.webhook_notified", {
       requestId: req.requestId || null,
@@ -256,12 +258,32 @@ exports.sendMessageWithApiToken = async (req, res) => {
       senderPhone: result.senderPhone,
       messageId: result.messageId,
       status: result.status,
+      pointsCharged: result.pointsCharged,
+      remainingPoints: result.remainingPoints,
     });
   } catch (error) {
+    let remainingPoints = error.remainingPoints;
+    if (remainingPoints === undefined && req.user?.id) {
+      try {
+        remainingPoints = (await getWalletSummary(req.user.id)).walletPoints;
+      } catch (walletError) {
+        trace("message.external_send.wallet_lookup_failed", {
+          requestId: req.requestId || null,
+          userId: req.user?.id || null,
+          error: walletError.message,
+        }, "warn");
+      }
+    }
+
     await notifyWebhook(req.apiToken, {
       event: "message.failed",
       phone,
       error: error.message,
+      pointsRequired: error.pointsRequired,
+      remainingPoints,
+      dailyLimit: error.dailyLimit,
+      sentToday: error.sentToday,
+      remainingDailyLimit: error.remainingDailyLimit,
     });
     trace("message.external_send.error", {
       requestId: req.requestId || null,
@@ -273,7 +295,15 @@ exports.sendMessageWithApiToken = async (req, res) => {
       statusCode: error.statusCode || 500,
     }, error.statusCode && error.statusCode < 500 ? "warn" : "error");
     logger.error(`Error sending message with API token: ${error}`);
-    return sendError(res, error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      error: (error.statusCode || 500) >= 500 ? "Server error" : error.message,
+      pointsRequired: error.pointsRequired,
+      remainingPoints,
+      dailyLimit: error.dailyLimit,
+      sentToday: error.sentToday,
+      remainingDailyLimit: error.remainingDailyLimit,
+    });
   }
 };
 

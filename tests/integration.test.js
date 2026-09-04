@@ -8,8 +8,10 @@ const { app } = require("../app");
 const { sequelize } = require("../app/config/database");
 const ensureSchemaUpdates = require("../app/config/schemaUpdates");
 const ApiToken = require("../app/models/ApiToken");
+const Client = require("../app/models/Client");
 const SystemSetting = require("../app/models/SystemSetting");
 const User = require("../app/models/User");
+const WhatsAppMessage = require("../app/models/WhatsAppMessage");
 
 const request = async (baseUrl, path, options = {}) => {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -525,6 +527,91 @@ test("core API integration flow", async (t) => {
     body: JSON.stringify({ tokenId: apiToken.id }),
   });
   assert.equal(revoke.response.status, 200);
+
+  const noPointsUser = await User.create({
+    username: `nopoints${suffix}`.slice(0, 30),
+    email: `nopoints-${suffix}@example.com`,
+    password: "password123",
+    phone: `+2014${String(suffix).slice(-8)}`,
+    isVerified: true,
+  });
+  const noPointsToken = ApiToken.generateRawToken();
+  await ApiToken.create({
+    userId: noPointsUser.id,
+    phone: "201400000000",
+    token: ApiToken.hashToken(noPointsToken),
+    name: "no points",
+    scopes: ["messages:send"],
+  });
+
+  const externalWithoutPoints = await request(baseUrl, "/api/external/messages/send", {
+    method: "POST",
+    headers: { "X-API-Token": noPointsToken },
+    body: JSON.stringify({
+      phone: "+20 111 777 8888",
+      message: "No points",
+    }),
+  });
+  assert.equal(externalWithoutPoints.response.status, 402);
+  assert.equal(externalWithoutPoints.body.success, false);
+  assert.equal(externalWithoutPoints.body.error, "Insufficient wallet points");
+  assert.equal(externalWithoutPoints.body.pointsRequired, 2);
+  assert.equal(externalWithoutPoints.body.remainingPoints, 0);
+
+  const externalWallet = await request(baseUrl, "/api/external/wallet", {
+    headers: { "X-API-Token": noPointsToken },
+  });
+  assert.equal(externalWallet.response.status, 200);
+  assert.equal(externalWallet.body.success, true);
+  assert.equal(externalWallet.body.walletPoints, 0);
+  assert.equal(externalWallet.body.remainingPoints, 0);
+  assert.equal(externalWallet.body.dailyLimit, 3);
+  assert.equal(externalWallet.body.sentToday, 0);
+  assert.equal(externalWallet.body.remainingDailyLimit, 3);
+
+  const limitUser = await User.create({
+    username: `limit${suffix}`.slice(0, 30),
+    email: `limit-${suffix}@example.com`,
+    password: "password123",
+    phone: `+2013${String(suffix).slice(-8)}`,
+    isVerified: true,
+    walletPoints: 8,
+  });
+  const limitToken = ApiToken.generateRawToken();
+  await ApiToken.create({
+    userId: limitUser.id,
+    phone: "201300000000",
+    token: ApiToken.hashToken(limitToken),
+    name: "limit",
+    scopes: ["messages:send"],
+  });
+  const limitClient = await Client.create({
+    phone: "201117778888",
+    addedBy: limitUser.id,
+  });
+  await WhatsAppMessage.bulkCreate([0, 1, 2].map((index) => ({
+    userId: limitUser.id,
+    clientId: limitClient.id,
+    phone: `20111000000${index}`,
+    message: "Already sent",
+    status: "sent",
+  })));
+
+  const externalDailyLimit = await request(baseUrl, "/api/external/messages/send", {
+    method: "POST",
+    headers: { "X-API-Token": limitToken },
+    body: JSON.stringify({
+      phone: "+20 111 777 8888",
+      message: "Daily limit",
+    }),
+  });
+  assert.equal(externalDailyLimit.response.status, 429);
+  assert.equal(externalDailyLimit.body.success, false);
+  assert.equal(externalDailyLimit.body.error, "Daily message limit reached (3 messages).");
+  assert.equal(externalDailyLimit.body.remainingPoints, 8);
+  assert.equal(externalDailyLimit.body.dailyLimit, 3);
+  assert.equal(externalDailyLimit.body.sentToday, 3);
+  assert.equal(externalDailyLimit.body.remainingDailyLimit, 0);
 
   const health = await request(baseUrl, "/health");
   assert.equal(health.response.status, 200);

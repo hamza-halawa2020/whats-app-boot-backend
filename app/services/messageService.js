@@ -130,11 +130,15 @@ const getTodayRange = () => {
   return { start, end };
 };
 
-const assertDailyMessageLimit = async (userId, additionalMessages = 1) => {
+const getDailyMessageUsage = async (userId) => {
   const settings = await getAppSettings();
   const dailyLimit = Number(settings.dailyMessageLimit || 0);
   if (!dailyLimit) {
-    return { dailyLimit, sentToday: 0 };
+    return {
+      dailyLimit,
+      sentToday: 0,
+      remainingDailyLimit: null,
+    };
   }
 
   const { start, end } = getTodayRange();
@@ -151,13 +155,29 @@ const assertDailyMessageLimit = async (userId, additionalMessages = 1) => {
     },
   });
 
-  if (sentToday + additionalMessages > dailyLimit) {
-    const error = new Error(`Daily message limit reached (${dailyLimit} messages).`);
+  return {
+    dailyLimit,
+    sentToday,
+    remainingDailyLimit: Math.max(dailyLimit - sentToday, 0),
+  };
+};
+
+const assertDailyMessageLimit = async (userId, additionalMessages = 1) => {
+  const usage = await getDailyMessageUsage(userId);
+
+  if (usage.dailyLimit && usage.sentToday + additionalMessages > usage.dailyLimit) {
+    const error = new Error(`Daily message limit reached (${usage.dailyLimit} messages).`);
     error.statusCode = 429;
+    const wallet = await getWalletSummary(userId);
+    error.remainingPoints = wallet.walletPoints;
+    error.walletPoints = wallet.walletPoints;
+    error.dailyLimit = usage.dailyLimit;
+    error.sentToday = usage.sentToday;
+    error.remainingDailyLimit = usage.remainingDailyLimit;
     throw error;
   }
 
-  return { dailyLimit, sentToday };
+  return usage;
 };
 
 const sendTextMessage = async (whatsapp, chatId, message) => {
@@ -308,12 +328,15 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
     messageLength: message?.length || 0,
   });
 
+  const wallet = await getWalletSummary(user.id);
   const messageCost = await getMessagePointCost();
   await assertDailyMessageLimit(user.id);
-  const wallet = await getWalletSummary(user.id);
   if (wallet.walletPoints < messageCost) {
     const error = new Error("Insufficient wallet points");
     error.statusCode = 402;
+    error.pointsRequired = messageCost;
+    error.remainingPoints = wallet.walletPoints;
+    error.walletPoints = wallet.walletPoints;
     throw error;
   }
 
@@ -506,5 +529,6 @@ const sendWhatsAppMessage = async ({ user, phone, message, senderPhone = null })
 module.exports = {
   normalizePhoneNumber,
   assertDailyMessageLimit,
+  getDailyMessageUsage,
   sendWhatsAppMessage,
 };
