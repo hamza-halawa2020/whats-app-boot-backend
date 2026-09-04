@@ -7,6 +7,7 @@ const PointPurchase = require("../models/PointPurchase");
 const User = require("../models/User");
 const { getAppSettings } = require("./settingsService");
 const { createWalletTransaction } = require("./walletService");
+const cache = require("./cacheService");
 
 const PAYMENT_METHODS = ["manual", "automatic"];
 const REVIEW_STATUSES = ["approved", "refused", "canceled"];
@@ -137,18 +138,36 @@ const listPackages = async ({ includeInactive = false, page = 1, limit = 10 } = 
   const safePage = Math.max(parseInt(page, 10) || 1, 1);
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
   const where = includeInactive ? {} : { isActive: true };
+  const cacheKey = `point-packages:active:page:${safePage}:limit:${safeLimit}`;
+
+  if (!includeInactive) {
+    return cache.remember(cacheKey, 60, async () => listPackagesFromDatabase({
+      where,
+      page: safePage,
+      limit: safeLimit,
+    }));
+  }
+
+  return listPackagesFromDatabase({
+    where,
+    page: safePage,
+    limit: safeLimit,
+  });
+};
+
+const listPackagesFromDatabase = async ({ where, page, limit }) => {
   const { rows, count } = await PointPackage.findAndCountAll({
     where,
     order: [["createdAt", "DESC"]],
-    offset: (safePage - 1) * safeLimit,
-    limit: safeLimit,
+    offset: (page - 1) * limit,
+    limit,
   });
 
   return {
     packages: rows,
     total: count,
-    page: safePage,
-    totalPages: Math.ceil(count / safeLimit),
+    page,
+    totalPages: Math.ceil(count / limit),
   };
 };
 
@@ -159,7 +178,7 @@ const createPackage = async ({ name, points, price, currency, isActive = true, a
     throw error;
   }
 
-  return PointPackage.create({
+  const pointPackage = await PointPackage.create({
     name: cleanText(name, 80),
     points: parsePositiveInteger(points, "Points"),
     price: parsePositivePrice(price),
@@ -168,6 +187,10 @@ const createPackage = async ({ name, points, price, currency, isActive = true, a
     createdBy: adminId || null,
     updatedBy: adminId || null,
   });
+
+  cache.forgetPrefix("point-packages:active");
+  cache.forgetPrefix("admin:analytics");
+  return pointPackage;
 };
 
 const updatePackage = async (packageId, updates, adminId) => {
@@ -206,6 +229,8 @@ const updatePackage = async (packageId, updates, adminId) => {
 
   pointPackage.updatedBy = adminId || null;
   await pointPackage.save();
+  cache.forgetPrefix("point-packages:active");
+  cache.forgetPrefix("admin:analytics");
   return pointPackage;
 };
 
@@ -258,7 +283,7 @@ const createPurchase = async ({
 
   const proofFileData = await saveProofFile(proofFile);
 
-  return PointPurchase.create({
+  const purchase = await PointPurchase.create({
     userId,
     packageId: selectedPackage?.id || null,
     paymentMethod,
@@ -269,6 +294,9 @@ const createPurchase = async ({
     ...proofFileData,
     userNote: cleanText(userNote, 1000),
   });
+
+  cache.forgetPrefix("admin:analytics");
+  return purchase;
 };
 
 const listUserPurchases = async ({ userId, page = 1, limit = 10 }) => {
@@ -342,6 +370,7 @@ const updateRefusedPurchase = async ({ userId, purchaseId, proofReference, userN
   purchase.reviewedBy = null;
   purchase.reviewedAt = null;
   await purchase.save();
+  cache.forgetPrefix("admin:analytics");
   return purchase.reload({ include: buildPurchaseInclude().filter((item) => item.as !== "user") });
 };
 
@@ -437,6 +466,7 @@ const reviewPurchase = async ({ purchaseId, status, adminNote, adminId }) => {
     purchase.reviewedAt = new Date();
     purchase.walletTransactionId = walletTransactionId;
     await purchase.save({ transaction });
+    cache.forgetPrefix("admin:analytics");
 
     return purchase;
   });

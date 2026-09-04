@@ -2,6 +2,7 @@ const { sequelize } = require("../config/database");
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
 const { getAppSettings } = require("./settingsService");
+const cache = require("./cacheService");
 
 const DEFAULT_MESSAGE_POINT_COST = Number(process.env.MESSAGE_POINT_COST || 1);
 
@@ -62,6 +63,7 @@ const createWalletTransaction = async ({
 
   user.walletPoints = balanceAfter;
   await user.save({ transaction });
+  cache.forgetPrefix("admin:analytics");
 
   return WalletTransaction.create(
     {

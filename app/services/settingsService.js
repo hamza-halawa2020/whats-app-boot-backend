@@ -1,4 +1,5 @@
 const SystemSetting = require("../models/SystemSetting");
+const cache = require("./cacheService");
 
 const DEFAULT_SETTINGS = {
   signupGiftPoints: Number(process.env.SIGNUP_GIFT_POINTS || 0),
@@ -9,6 +10,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const SETTING_KEY = "app";
+const SETTINGS_CACHE_KEY = "settings:app";
 
 const normalizeIntegerSetting = (value, fallback, { min = 0 } = {}) => {
   const parsed = Number(value);
@@ -64,8 +66,10 @@ const normalizeSettings = (settings = {}) => ({
 });
 
 const getAppSettings = async () => {
-  const row = await SystemSetting.findByPk(SETTING_KEY);
-  return normalizeSettings(row?.value || DEFAULT_SETTINGS);
+  return cache.remember(SETTINGS_CACHE_KEY, 60, async () => {
+    const row = await SystemSetting.findByPk(SETTING_KEY);
+    return normalizeSettings(row?.value || DEFAULT_SETTINGS);
+  });
 };
 
 const updateAppSettings = async (updates, adminId = null) => {
@@ -81,6 +85,9 @@ const updateAppSettings = async (updates, adminId = null) => {
     updatedBy: adminId,
     updatedAt: new Date(),
   });
+
+  cache.forget(SETTINGS_CACHE_KEY);
+  cache.forgetPrefix("admin:analytics");
 
   return next;
 };

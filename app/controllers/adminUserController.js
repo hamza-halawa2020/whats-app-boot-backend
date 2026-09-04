@@ -2,6 +2,7 @@ const User = require("../models/User");
 const PointPackage = require("../models/PointPackage");
 const PointPurchase = require("../models/PointPurchase");
 const { creditPoints, debitPoints, getWalletTransactions } = require("../services/walletService");
+const cache = require("../services/cacheService");
 const { sendError } = require("../utils/responses");
 const { normalizePhoneNumber } = require("../utils/phone");
 
@@ -18,26 +19,30 @@ const buildPublicUser = (user) => ({
 
 exports.getAnalytics = async (req, res) => {
   try {
-    const [totalUsers, verifiedUsers, adminUsers, pendingPayments, activePackages, walletPoints] =
-      await Promise.all([
-        User.count(),
-        User.count({ where: { isVerified: true } }),
-        User.count({ where: { role: "admin" } }),
-        PointPurchase.count({ where: { status: "pending" } }),
-        PointPackage.count({ where: { isActive: true } }),
-        User.sum("walletPoints"),
-      ]);
+    const analytics = await cache.remember("admin:analytics:summary", 30, async () => {
+      const [totalUsers, verifiedUsers, adminUsers, pendingPayments, activePackages, walletPoints] =
+        await Promise.all([
+          User.count(),
+          User.count({ where: { isVerified: true } }),
+          User.count({ where: { role: "admin" } }),
+          PointPurchase.count({ where: { status: "pending" } }),
+          PointPackage.count({ where: { isActive: true } }),
+          User.sum("walletPoints"),
+        ]);
 
-    return res.json({
-      success: true,
-      analytics: {
+      return {
         totalUsers,
         verifiedUsers,
         adminUsers,
         pendingPayments,
         activePackages,
         walletPoints: Number(walletPoints || 0),
-      },
+      };
+    });
+
+    return res.json({
+      success: true,
+      analytics,
     });
   } catch (error) {
     return sendError(res, error);
@@ -130,6 +135,7 @@ exports.createUser = async (req, res) => {
     }
 
     const freshUser = await User.findByPk(user.id);
+    cache.forgetPrefix("admin:analytics");
 
     return res.status(201).json({
       success: true,
@@ -200,6 +206,7 @@ exports.updateUser = async (req, res) => {
 
     Object.assign(user, updates);
     await user.save();
+    cache.forgetPrefix("admin:analytics");
 
     return res.json({
       success: true,
@@ -290,6 +297,7 @@ exports.updateUserRole = async (req, res) => {
 
     user.role = role;
     await user.save();
+    cache.forgetPrefix("admin:analytics");
 
     return res.json({
       success: true,
