@@ -27,6 +27,28 @@ const {
 
 const ScheduledMessage = require("../models/ScheduledMessage");
 
+const normalizeSenderPhone = (phone, countryCode = null) => {
+  const rawPhone = String(phone || "").trim();
+  if (rawPhone.startsWith("+") || countryCode) {
+    return normalizePhoneNumber(rawPhone, countryCode);
+  }
+
+  const digits = rawPhone.replace(/[^0-9]/g, "");
+  if (/^[1-9][0-9]{7,14}$/.test(digits)) {
+    return digits;
+  }
+
+  if (!digits || digits.startsWith("0")) {
+    const error = new Error("Phone must include country code, for example +201001234567");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const error = new Error("Phone number is invalid");
+  error.statusCode = 400;
+  throw error;
+};
+
 const notifyWebhook = async (apiToken, payload) => {
   if (!apiToken?.webhookUrl) {
     return;
@@ -101,21 +123,22 @@ exports.sendMessage = async (req, res) => {
 exports.generateApiToken = async (req, res) => {
   const userId = req.user.id;
   const userPhone = req.user.phone;
-  const {
-    name = null,
-    scopes = ["messages:send"],
-    webhookUrl = null,
-    expiresAt = null,
-    phone = null,
-    senderPhone = null,
-    fromPhone = null,
-    sessionPhone = null,
-  } = req.body;
-  const tokenPhone = normalizePhoneNumber(
-    phone || senderPhone || fromPhone || sessionPhone || userPhone
-  );
 
   try {
+    const {
+      name = null,
+      scopes = ["messages:send"],
+      webhookUrl = null,
+      expiresAt = null,
+      phone = null,
+      senderPhone = null,
+      fromPhone = null,
+      sessionPhone = null,
+      countryCode = null,
+    } = req.body;
+    const requestedPhone = phone || senderPhone || fromPhone || sessionPhone || null;
+    const tokenPhone = normalizeSenderPhone(requestedPhone || userPhone, countryCode);
+
     trace("tokens.generate.request", {
       requestId: req.requestId || null,
       userId,
