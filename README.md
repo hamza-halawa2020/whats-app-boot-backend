@@ -31,6 +31,12 @@ The app will create or sync the required MySQL tables on startup.
 
 ## WhatsApp Session Persistence
 
+`whatsapp-web.js` is pinned to 1.34.8 with the upstream `/login/` compatibility
+fix from https://github.com/wwebjs/whatsapp-web.js/pull/201990. `npm install`
+and `npm ci` apply `patches/whatsapp-login.diff` through the postinstall script.
+If installing with `--ignore-scripts`, run `node scripts/patch-whatsapp.cjs`.
+Review and remove this backport when upgrading to a release containing the fix.
+
 WhatsApp login is stored by `whatsapp-web.js` under:
 
 ```env

@@ -21,7 +21,8 @@ const createWhatsAppInjectionHelpers = ({
     withTimeout(
       client.pupPage.evaluate(() => ({
         debugVersion: window.Debug?.VERSION || null,
-        authState: window.AuthStore?.AppState?.state || null,
+        authState: window.require?.("WAWebBackendEventBus")?.BackendEventBus?.socketState ||
+          window.AuthStore?.AppState?.state || null,
         hasRequire: typeof window.require === "function",
         hasWWebJS: typeof window.WWebJS !== "undefined",
         hasSendMessage: typeof window.WWebJS?.sendMessage === "function",

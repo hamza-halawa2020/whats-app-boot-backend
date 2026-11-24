@@ -257,6 +257,8 @@ const initializeWhatsApp = async (userId, phone) => {
   await cleanupLocalAuthLaunchLocks(sessionId);
 
   const whatsapp = new Client({
+    // The library's old macOS UA receives a download interstitial.
+    userAgent: false,
     authStrategy: new LocalAuth({
       clientId: getLocalAuthClientId(sessionId),
       dataPath: getLocalAuthDataPath(),
@@ -473,14 +475,31 @@ const initializeWhatsApp = async (userId, phone) => {
     });
     return whatsapp;
   } catch (err) {
+    if (err.name === "TimeoutError" && whatsapp.pupPage && !whatsapp.pupPage.isClosed()) {
+      const diagnostics = await withTimeout(whatsapp.pupPage.evaluate(() => ({
+        version: window.Debug?.VERSION || null,
+        userAgent: navigator.userAgent,
+        hasSocket: (() => {
+          try { return Boolean(window.require?.("WAWebSocketModel")?.Socket); }
+          catch { return false; }
+        })(),
+      })).catch(() => null), 2000, null);
+      trace("whatsapp.initialize.module_timeout", { sessionId, diagnostics }, "error");
+      err.statusCode = 503;
+      err.message = `WhatsApp Web initialization timed out${diagnostics?.version ? ` (web version ${diagnostics.version})` : ""}. Authentication modules may be unavailable or incompatible with whatsapp-web.js.`;
+    }
     clients.delete(sessionId);
     readyWaiters.delete(sessionId);
+    await cleanupWhatsAppClient(sessionId, whatsapp).catch((cleanupError) => {
+      logger.warn(`WhatsApp initialization cleanup failed for ${sessionId}: ${cleanupError.message}`);
+    });
     logger.error(`WhatsApp initialization error: ${err}`);
     trace("whatsapp.initialize.error", {
       userId,
       phone,
       sessionId,
       error: err.message,
+      stack: err.stack,
       chromeExecutablePath: getChromeExecutablePath() || null,
       chromeExecutableDiagnostics: getChromeExecutableDiagnostics(),
     }, "error");
