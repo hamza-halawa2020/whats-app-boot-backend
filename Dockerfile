@@ -47,6 +47,8 @@ RUN apt-get update \
 RUN chromium --version
 
 COPY package*.json ./
+COPY scripts/patch-whatsapp.cjs ./scripts/patch-whatsapp.cjs
+COPY patches/whatsapp-login.diff ./patches/whatsapp-login.diff
 RUN npm ci --omit=dev
 
 COPY . .
